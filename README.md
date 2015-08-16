@@ -6,6 +6,7 @@ implementing the Publish-Subscribe Broker for the
 
 This is an experimental implementation of the
 [draft-koster-core-coap-pubsub-02](https://www.ietf.org/id/draft-koster-core-coap-pubsub-02.txt).
+Not for operational use.
 
 ## Interactions
 
@@ -19,7 +20,7 @@ perform all standard operations:
    </pre>
  - Create topic by `POST /ps "<topic1>"`
    <pre>
-   $ ./coap-client -m post coap://127.0.0.1/ps -e "<topic1>"
+   $ ./coap-client -m post coap://127.0.0.1/ps -e "&lt;topic1>"
    </pre>
  - Publish to a topic by `PUT /ps/topic1 "1033.3"`
    <pre>
