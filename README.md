@@ -33,28 +33,32 @@ perform all standard operations:
    $ ./coap-client coap://127.0.0.1/ps/topic1
    </pre>
  - Subscribe to a topic by `GET /ps/topic1 Observe:0 Token:XX`
+ - Receive publications as `2.05 Content Token:XX`
    <pre>
    $ ./coap-client coap://127.0.0.1/ps/topic1 -s 10 -T "XX"
    </pre>
- - Receive publications as `2.05 Content Token:XX`
  - Unsubscribe from a topic by `GET /ps/topic1 Observe:1 Token:XX`
- - Remove a topic by `DELETE /ps/topic1`
+ - Remove a topic by `DELETE /ps/topic1`<br/>
+   Note, this will also terminate all CoAP observers of this topic.
    <pre>
    $ ./coap-client -m delete coap://127.0.0.1/ps/topic1
    </pre>
 
 ### RabbitMQ Behaviour
 
-Each topic is implemented as an RabbitMQ exchange. Subscription to a topic is
+Each CoAP topic is implemented as an RabbitMQ exchange. Subscription to a topic is
 implemented using a temporary RabbitMQ queue bound to that exchange.
 
 Names of the temporary queues are composed from a prefix `coap/`, IP:port of the
 subscriber and the token characters. For example, a subscription from 127.0.0.1:40212
-using the token `HH` will be served by the queue `coap/127.0.0.1:40212/4848`.
+using the token `HH` will be served by the queue `coap/127.0.0.1:40212/4848`. Deleting
+this queue will forcibly terminate the observer.
 
 Retrieval of the most recent published value requires a caching exchange, i.e.
 either [x-lvc](https://github.com/rabbitmq/rabbitmq-lvc-plugin)
 or [x-recent-history](https://github.com/videlalvaro/rabbitmq-recent-history-exchange).
+Subscription to other exchange types is possible, but the GET operation will
+succeed only once a new message published.
 
 The implementation intentionally differs from the draft-02 in the following aspects:
  - The POST and DELETE operations are idempotent. Creating a topic that already exist
