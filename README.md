@@ -134,11 +134,11 @@ for more details.
 
 ## Copyright and Licensing
 
-Copyright (c) 2015 Petr Gotthard <petr.gotthard@centrum.cz>
+Copyright (c) 2015 Petr Gotthard <petr.gotthard@centrum.cz>. All Rights Reserved.
 
-This package is subject to the Mozilla Public License Version 2.0 (the "License");
+This package is subject to the Mozilla Public License Version 1.1 (the "License");
 you may not use this file except in compliance with the License. You may obtain a
-copy of the License at http://mozilla.org/MPL/2.0/.
+copy of the License at http://www.mozilla.org/MPL/.
 
 Software distributed under the License is distributed on an "AS IS" basis,
 WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License for the
