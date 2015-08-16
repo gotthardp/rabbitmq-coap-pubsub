@@ -12,8 +12,10 @@ Not for operational use.
 
 ### Quick Introduction
 
-You may use the command-line tool from [libcoap](https://libcoap.net/). You can
-perform all standard operations:
+RabbitMQ will listen for UDP packets on port 5683.
+You can use the command-line tool from [libcoap](https://libcoap.net/), or any
+other CoAP client and perform all standard operations:
+
  - Obtain the `/ps` subtree by `GET /.well-known/core?rt=core.ps`
    <pre>
    $ ./coap-client coap://127.0.0.1/.well-known/core?rt=core.ps
@@ -83,6 +85,8 @@ Add the plug-in configuration section. See
       <td><pre>resources</pre></td>
       <td>
         Virtual Hosts accessible via CoAP and corresponding pub/sub Function Set paths.
+        The path is defined as a list of strings; each string defines one segment
+        of the absolute path to the resource.
         <br/>
         Default: <pre>[{<<"/">>, ["ps"]}]</pre>
       </td>
@@ -90,7 +94,8 @@ Add the plug-in configuration section. See
     <tr>
       <td><pre>exchange_type</pre></td>
       <td>
-        Exchange type used by CoAP generated topics.
+        Exchange type used by CoAP generated topics. It is recommended to use
+        a caching exchange.
         <br/>
         Default: <pre><<"direct">></pre>
       </td>
