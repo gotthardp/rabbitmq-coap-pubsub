@@ -21,8 +21,12 @@ stop(_State) ->
     ok.
 
 init([]) ->
+    {ok, Resources} = application:get_env(?MODULE, resources),
     {ok, {{one_for_one, 3, 10},
-        [{coap_handler, {rabbitmq_coap_pubsub, start_link, [<<"/">>]},
-            permanent, 10000, worker, [rabbitmq_coap_pubsub]}]}}.
+        lists:foldl(
+            fun({VHost, Prefix}, Acc) ->
+                [{coap_handler, {rabbit_coap_handler, start_link, [VHost, Prefix]},
+                    permanent, 10000, worker, [rabbit_coap_handler]} | Acc]
+            end, [], Resources)}}.
 
 % end of file

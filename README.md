@@ -11,31 +11,97 @@ This is an experimental implementation of the
 
 ### Quick Introduction
 
-You can perform all standard operations:
+You may use the command-line tool from [libcoap](https://libcoap.net/). You can
+perform all standard operations:
  - Obtain the `/ps` subtree by `GET /.well-known/core?rt=core.ps`
+   <pre>
+   $ ./coap-client coap://127.0.0.1/.well-known/core?rt=core.ps
+   </pre>
  - Create topic by `POST /ps "<topic1>"`
+   <pre>
+   $ ./coap-client -m post coap://127.0.0.1/ps -e "<topic1>"
+   </pre>
  - Publish to a topic by `PUT /ps/topic1 "1033.3"`
+   <pre>
+   $ ./coap-client -m put coap://127.0.0.1/ps/topic1 -e "1033.3"
+   </pre>
+ - Get the most recent published value by `GET /ps/topic1`<br/>
+   Note, this operation requires a caching exchange, e.g. either
+   [x-lvc](https://github.com/rabbitmq/rabbitmq-lvc-plugin) or
+   [x-recent-history](https://github.com/videlalvaro/rabbitmq-recent-history-exchange).
+   <pre>
+   $ ./coap-client coap://127.0.0.1/ps/topic1
+   </pre>
  - Subscribe to a topic by `GET /ps/topic1 Observe:0 Token:XX`
+   <pre>
+   $ ./coap-client coap://127.0.0.1/ps/topic1 -s 10 -T "XX"
+   </pre>
  - Receive publications as `2.05 Content Token:XX`
  - Unsubscribe from a topic by `GET /ps/topic1 Observe:1 Token:XX`
- - Get the most recent published value by `GET /ps/topic1`
  - Remove a topic by `DELETE /ps/topic1`
-
-You may use the command-line tool from [libcoap](https://libcoap.net/). For example,
-to subscribe for 10 seconds to `/ps/topic1` you should type
-
-    $ ./coap-client -m get coap://127.0.0.1/ps/topic1 -s 10 -T "XX"
+   <pre>
+   $ ./coap-client -m delete coap://127.0.0.1/ps/topic1
+   </pre>
 
 ### RabbitMQ Behaviour
 
 Each topic is implemented as an RabbitMQ exchange. Subscription to a topic is
 implemented using a temporary RabbitMQ queue bound to that exchange.
 
+Names of the temporary queues are composed from a prefix `coap/`, IP:port of the
+subscriber and the token characters. For example, a subscription from 127.0.0.1:40212
+using the token `HH` will be served by the queue `coap/127.0.0.1:40212/4848`.
+
 Retrieval of the most recent published value requires a caching exchange, i.e.
 either [x-lvc](https://github.com/rabbitmq/rabbitmq-lvc-plugin)
 or [x-recent-history](https://github.com/videlalvaro/rabbitmq-recent-history-exchange).
 
+The implementation intentionally differs from the draft-02 in the following aspects:
+ - The POST and DELETE operations are idempotent. Creating a topic that already exist
+   causes 2.01 "Created" instead of 4.03 "Forbidden". Similarly, deleting a topic
+   that does not exist causes 2.02 "Deleted".
+
+
 ## Installation
+
+### RabbitMQ Configuration
+Add the plug-in configuration section. See
+[RabbitMQ Configuration](https://www.rabbitmq.com/configure.html) for more details.
+
+<table>
+  <tbody>
+    <tr>
+      <th>Key</th>
+      <th>Documentation</th>
+    </tr>
+    <tr>
+      <td><pre>resources</pre></td>
+      <td>
+        Virtual Hosts accessible via CoAP and corresponding pub/sub Function Set paths.
+        <br/>
+        Default: <pre>[{<<"/">>, ["ps"]}]</pre>
+      </td>
+    </tr>
+    <tr>
+      <td><pre>exchange_type</pre></td>
+      <td>
+        Exchange type used by CoAP generated topics.
+        <br/>
+        Default: <pre><<"direct">></pre>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+For example:
+```erlang
+{rabbitmq_coap_pubsub, [
+    {resources, [
+        {<<"/">>, ["ps"]}
+    ]},
+    {exchange_type, <<"x-lvc">>}
+]}
+```
 
 ### Installation from source
 

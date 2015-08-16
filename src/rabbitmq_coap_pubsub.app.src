@@ -11,8 +11,12 @@
     {vsn, "0.0.1"},
     {modules, []},
     {registered, []},
-    {mod, {rabbitmq_coap_pubsub_app, []}},
+    {mod, {rabbitmq_coap_pubsub, []}},
     {env, [
+        {resources, [
+            {<<"/">>, ["ps"]}
+        ]},
+        {exchange_type, <<"direct">>}
     ]},
     {applications, [kernel, stdlib, rabbit, amqp_client, gen_coap]}]}.
 
