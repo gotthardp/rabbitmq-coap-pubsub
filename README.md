@@ -1,8 +1,15 @@
 # CoAP Publish-Subscribe interface to RabbitMQ
-
 Plug-in for the [RabbitMQ broker](http://www.rabbitmq.com)
 implementing the Publish-Subscribe Broker for the
-[Constrained Application Protocol (CoAP)](http://coap.technology).
+[Constrained Application Protocol (CoAP)](http://coap.technology),
+which is designed for the
+[Constrained RESTful Environments](https://datatracker.ietf.org/wg/core/charter).
+
+The REST architecture style promotes client-server operations on
+cacheable *resources*. This plug-in implements a REST API for the the
+[Last Value Cache](https://github.com/rabbitmq/rabbitmq-lvc-plugin);
+a CoAP *resource* represents an information in the cache and
+(AMQP) messages represent updates of the cached information.
 
 This is an experimental implementation of the
 [draft-koster-core-coap-pubsub-02](https://www.ietf.org/id/draft-koster-core-coap-pubsub-02.txt).
@@ -28,10 +35,7 @@ other CoAP client and perform all standard operations:
    <pre>
    $ ./coap-client -m put coap://127.0.0.1/ps/topic1 -e "1033.3"
    </pre>
- - Get the most recent published value by `GET /ps/topic1`<br/>
-   Note, this operation requires a caching exchange, e.g. either
-   [x-lvc](https://github.com/rabbitmq/rabbitmq-lvc-plugin) or
-   [x-recent-history](https://github.com/videlalvaro/rabbitmq-recent-history-exchange).
+ - Get the most recent published value by `GET /ps/topic1`
    <pre>
    $ ./coap-client coap://127.0.0.1/ps/topic1
    </pre>
@@ -56,12 +60,6 @@ Names of the temporary queues are composed from a prefix `coap/`, IP:port of the
 subscriber and the token characters. For example, a subscription from 127.0.0.1:40212
 using the token `HH` will be served by the queue `coap/127.0.0.1:40212/4848`. Deleting
 this queue will forcibly terminate the observer.
-
-Retrieval of the most recent published value requires a caching exchange, i.e.
-either [x-lvc](https://github.com/rabbitmq/rabbitmq-lvc-plugin)
-or [x-recent-history](https://github.com/videlalvaro/rabbitmq-recent-history-exchange).
-Subscription to other exchange types is possible, but the GET operation will
-succeed only once a new message published.
 
 The implementation intentionally differs from the draft-02 in the following aspects:
  - The POST and DELETE operations are idempotent. Creating a topic that already exist
@@ -91,15 +89,6 @@ Add the plug-in configuration section. See
         Default: <pre>[{<<"/">>, ["ps"]}]</pre>
       </td>
     </tr>
-    <tr>
-      <td><pre>exchange_type</pre></td>
-      <td>
-        Exchange type used by CoAP generated topics. It is recommended to use
-        a caching exchange.
-        <br/>
-        Default: <pre><<"direct">></pre>
-      </td>
-    </tr>
   </tbody>
 </table>
 
@@ -108,8 +97,7 @@ For example:
 {rabbitmq_coap_pubsub, [
     {resources, [
         {<<"/">>, ["ps"]}
-    ]},
-    {exchange_type, <<"x-lvc">>}
+    ]}
 ]}
 ```
 
