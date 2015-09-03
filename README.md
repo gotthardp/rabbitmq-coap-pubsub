@@ -27,7 +27,7 @@ other CoAP client and perform all standard operations:
    The server will return a list of available resources.
    <pre>
    $ ./coap-client coap://127.0.0.1/.well-known/core?rt=core.ps
-   </ps>;rt="core.ps",</ps/topic1>;ct=0;sz=15600
+   &lt;/ps>;rt="core.ps",&lt;/ps/topic1>;ct=0;sz=15600
    </pre>
  - Create a topic by `POST /ps "<topic1>"`
    <pre>
