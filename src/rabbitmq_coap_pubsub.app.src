@@ -16,9 +16,8 @@
     {env, [
         {resources, [
             {<<"/">>, ["ps"]}
-        ]},
-        {exchange_type, <<"direct">>}
+        ]}
     ]},
-    {applications, [kernel, stdlib, rabbit, amqp_client, gen_coap]}]}.
+    {applications, [kernel, stdlib, mnesia, rabbit, amqp_client, gen_coap]}]}.
 
 % end of file

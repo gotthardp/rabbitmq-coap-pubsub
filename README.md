@@ -23,11 +23,13 @@ RabbitMQ will listen for UDP packets on port 5683.
 You can use the command-line tool from [libcoap](https://libcoap.net/), or any
 other CoAP client and perform all standard operations:
 
- - Obtain the `/ps` subtree by `GET /.well-known/core?rt=core.ps`
+ - Discover the `/ps` function and available resources by `GET /.well-known/core`.
+   The server will return a list of available resources.
    <pre>
    $ ./coap-client coap://127.0.0.1/.well-known/core?rt=core.ps
+   </ps>;rt="core.ps",</ps/topic1>;ct=0;sz=15600
    </pre>
- - Create topic by `POST /ps "<topic1>"`
+ - Create a topic by `POST /ps "<topic1>"`
    <pre>
    $ ./coap-client -m post coap://127.0.0.1/ps -e "&lt;topic1>"
    </pre>
@@ -38,13 +40,13 @@ other CoAP client and perform all standard operations:
  - Get the most recent published value by `GET /ps/topic1`
    <pre>
    $ ./coap-client coap://127.0.0.1/ps/topic1
+   1033.3
    </pre>
  - Subscribe to a topic by `GET /ps/topic1 Observe:0 Token:XX`
  - Receive publications as `2.05 Content Token:XX`
    <pre>
    $ ./coap-client coap://127.0.0.1/ps/topic1 -s 10 -T "XX"
    </pre>
- - Unsubscribe from a topic by `GET /ps/topic1 Observe:1 Token:XX`
  - Remove a topic by `DELETE /ps/topic1`<br/>
    Note, this will also terminate all CoAP observers of this topic.
    <pre>
@@ -69,9 +71,13 @@ The implementation intentionally differs from the draft-02 in the following aspe
 
 ## Installation
 
+This plug-in requires the
+[Last value caching exchange](https://github.com/rabbitmq/rabbitmq-lvc-plugin).
+Please make sure that both `rabbitmq_lvc` and `rabbitmq-coap-pubsub` are installed.
+
 ### RabbitMQ Configuration
-Add the plug-in configuration section. See
-[RabbitMQ Configuration](https://www.rabbitmq.com/configure.html) for more details.
+To change the default settings you may add the `rabbitmq-coap-pubsub` section
+to your [RabbitMQ Configuration](https://www.rabbitmq.com/configure.html).
 
 <table>
   <tbody>

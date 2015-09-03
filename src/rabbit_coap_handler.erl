@@ -12,6 +12,7 @@
 
 -include_lib("amqp_client/include/amqp_client.hrl").
 -include_lib("gen_coap/include/coap.hrl").
+-include_lib("rabbitmq_lvc/include/rabbit_lvc_plugin.hrl").
 
 -export([start_link/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -19,7 +20,7 @@
 
 % consumers map consumer-tag -> observer-addr
 % observers map observer-addr -> sequence-num, consumer-tag
--record(state, {vhost, connection, channel, consumers, observers}).
+-record(state, {vhost, prefix, connection, channel, consumers, observers}).
 
 start_link(VHost, Prefix) ->
     gen_server:start_link(?MODULE, [VHost, Prefix], []).
@@ -27,120 +28,80 @@ start_link(VHost, Prefix) ->
 init([VHost, Prefix]) ->
     {ok, Connection} = amqp_connection:start(#amqp_params_direct{virtual_host=VHost}),
 
-    coap_server_content:add_handler(self(), {absolute, Prefix, [{rt, "core.ps"}]}, true),
+    coap_server_content:add_handler(self(),
+        [{absolute, Prefix, [{rt, "core.ps"}]},
+         {absolute, Prefix++[exchange], []},
+         {absolute, Prefix++[exchange, key], []}
+        ]),
     gen_server:cast(self(), init_consuming_channel),
 
-    State = #state{vhost=VHost, connection=Connection},
+    State = #state{vhost=VHost, prefix=Prefix, connection=Connection},
     {ok, State}.
 
+% DISCOVER
+handle_call({get_links, {absolute, Uri, _}}, _From, State=#state{vhost=VHost, prefix=Prefix}) ->
+    Suffix = lists:nthtail(length(Prefix), Uri),
+    {reply, get_resources(VHost, Prefix, Suffix), State};
 handle_call(_Msg, _From, State) ->
     {reply, unknown_command, State}.
 
+% initialization and recovery of consumers
 handle_cast(init_consuming_channel, State=#state{vhost=VHost, connection=Connection}) ->
     {ok, Channel} = amqp_connection:open_channel(Connection),
-
-    Queues = rabbit_amqqueue:list(VHost),
     % start consuming all existing observer queues
-    {Consumers, Observers} = lists:foldl(
-        fun (#amqqueue{name=Queue}, {Consumers, Observers}) ->
-            #resource{name=QName} = Queue,
+    State2 = lists:foldl(
+        fun (#amqqueue{name=#resource{name=QName}}, Acc) ->
             case QName of
                 <<"coap/", _Tail/binary>> ->
-                    Observer = queue_to_observer(QName),
-                    CTag = observe_queue(Channel, QName),
-                    {dict:store(CTag, Observer, Consumers), dict:store(Observer, {0, CTag}, Observers)};
+                    observe_queue(queue_to_observer(QName), QName, Acc);
                 _Else ->
-                    {Consumers, Observers}
+                    Acc
             end
-        end, {dict:new(), dict:new()}, Queues),
-    {noreply, State#state{channel=Channel, consumers=Consumers, observers=Observers}}.
+        end, State#state{channel=Channel, consumers=dict:new(), observers=dict:new()},
+        rabbit_amqqueue:list(VHost)),
+    {noreply, State2}.
 
-handle_info({coap_request, Pid, Sender={_, PeerIP, PeerPort},
+% CREATE
+handle_info({coap_request, _ChId, Pid, [], Request=#coap_message{method='post', payload=Payload}}, State) ->
+    case core_link:decode(binary_to_list(Payload)) of
+        [{rootless, [Exchange], _}] ->
+            handle_create_topic(list_to_binary(Exchange), Pid, Request, State);
+        _Else ->
+            coap_request:reply(Pid, Request, {error, bad_request}),
+            {noreply, State}
+    end;
+
+% REMOVE
+handle_info({coap_request, _ChId, Pid, Match, Request=#coap_message{method='delete'}}, State) ->
+    Exchange = get_match(exchange, Match),
+    Key = get_match(key, Match),
+    handle_delete_topic(Exchange, Key, Pid, Request, State);
+
+% READ / SUBSCRIBE / UNSUBSCRIBE
+handle_info({coap_request, {PeerIP, PeerPort}, Pid, Match,
             Request=#coap_message{method='get', token=Token, options=Options}},
-            State=#state{connection=Connection, channel=Channel, consumers=Consumers, observers=Observers}) ->
-    Exchange = lists:last(proplists:get_value(uri_path, Options)),
-    % each observer has assigned a queue
+            State=#state{connection=Connection}) ->
     Observer = {PeerIP, PeerPort, Token},
-    QName = observer_to_queue(Observer),
-
+    Exchange = get_match(exchange, Match),
+    Key = get_match(key, Match),
     % get desired action
-    Observe = case proplists:get_value(observe, Options) of
-        [O] -> O;
-        _Else -> undefined
-    end,
-    % get subscription status
-    Seq = case dict:find(Observer, Observers) of
-        {ok, {S, _}} -> S;
-        error -> undefined
-    end,
-
-    if
-        Observe == 0 -> % (re-)subscribe
-            delete_queue(QName, Connection),
-            case create_and_bind_queue(true, QName, list_to_binary(Exchange), Connection) of
-                ok ->
-                    CTag = observe_queue(Channel, QName),
-                    Consumers2 = dict:store(CTag, Observer, Consumers),
-                    Observers2 = dict:store(Observer,
-                        {if Seq == undefined -> 0; true -> Seq end, CTag}, Observers),
-                    coap_exchange:ack(Pid, Sender, Request),
-                    {noreply, State#state{consumers=Consumers2, observers=Observers2}}
-            end;
-
-        Observe == 1; % (repeated) cancellation
-        Seq == undefined -> % standard get
-            delete_queue(QName, Connection),
-            case create_and_bind_queue(false, QName, list_to_binary(Exchange), Connection) of
-                ok ->
-                    CTag = observe_queue(Channel, QName),
-                    Consumers2 = dict:store(CTag, Observer, Consumers),
-                    Observers2 = dict:erase(Observer, Observers),
-                    coap_exchange:ack(Pid, Sender, Request),
-                    {noreply, State#state{consumers=Consumers2, observers=Observers2}}
-            end;
-
-        true -> % standard get when subscribed
-            coap_exchange:reply(Pid, Sender, Request, bad_option),
+    case proplists:get_value(observe, Options) of
+        [0] ->
+            % (re)subscribe
+            handle_subscribe(Observer, Exchange, Key, Pid, Request, State);
+        [1] ->
+            % (repeated) cancellation
+            delete_queue(observer_to_queue(Observer), Connection),
+            handle_get(Exchange, Key, Pid, Request, State);
+        undefined ->
+            % standard get
+            handle_get(Exchange, Key, Pid, Request, State);
+        _SomethingWeird ->
+            coap_exchange:reply(Pid, Request, {error, bad_option}),
             {noreply, State}
     end;
 
 handle_info(#'basic.consume_ok'{}, State) ->
-    {noreply, State};
-
-% message delivery
-handle_info({#'basic.deliver'{consumer_tag=CTag, delivery_tag=DTag}, Content},
-        State=#state{connection=Connection, consumers=Consumers, observers=Observers}) ->
-    {ok, Observer={PeerIP, PeerPortNo, Token}} = dict:find(CTag, Consumers),
-
-    #amqp_msg{props=Properties, payload=Payload} = Content,
-    #'P_basic'{content_type=ContentType} = Properties,
-    Message = coap_message:con_with_content(ContentType, Payload, Token),
-
-    case dict:find(Observer, Observers) of
-        {ok, {Seq, CTag}} ->
-            {SeqNum, NextSeq} = seq_num(Seq),
-            Message2 = Message#coap_message{options=[{observe, [SeqNum]}]},
-            coap_endpoint:start_exchange({coap_server, PeerIP, PeerPortNo}, {Observer, DTag}, Message2),
-            Observers2 = dict:store(Observer, {NextSeq, CTag}, Observers),
-            {noreply, State#state{observers=Observers2}};
-        error ->
-            delete_queue(observer_to_queue(Observer), Connection),
-            coap_endpoint:start_exchange({coap_server, PeerIP, PeerPortNo}, {Observer, DTag}, Message),
-            {noreply, State}
-    end;
-
-handle_info({coap_response, _Pid, _Sender, {_Observer, DTag}, #coap_message{type=ack}},
-        State=#state{channel=Channel}) ->
-    amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = DTag}),
-    {noreply, State};
-
-handle_info({coap_response, _Pid, _Sender, {Observer, _DTag}, #coap_message{type=reset}},
-        State=#state{connection=Connection}) ->
-    QName = observer_to_queue(Observer),
-    rabbit_log:warning("cannot deliver from: ~p", [QName]),
-
-    % this will cancel the consumers, so 'basic.cancel' will be received
-    delete_queue(QName, Connection),
     {noreply, State};
 
 % subscription was cancelled
@@ -157,85 +118,51 @@ handle_info(#'basic.cancel'{consumer_tag=CTag}, State=#state{consumers=Consumers
     end,
     {noreply, State#state{consumers=Consumers2, observers=Observers2}};
 
-handle_info({coap_request, Pid, Sender, Request=#coap_message{method='put', options=Options}},
-            State=#state{connection=Connection}) ->
-    {ok, PubChannel} = amqp_connection:open_channel(Connection),
-    amqp_channel:call(PubChannel, #'confirm.select'{}),
-    Exchange = lists:last(proplists:get_value(uri_path, Options)),
+% PUBLISH
+handle_info({coap_request, _ChId, Pid, Match, Request=#coap_message{method='put'}}, State) ->
+    Exchange = get_match(exchange, Match),
+    Key = get_match(key, Match),
+    handle_publish(Exchange, Key, Pid, Request, State);
 
-    BasicPublish = #'basic.publish'{exchange = list_to_binary(Exchange),
-                            mandatory = true},
-    Content = #amqp_msg{props = #'P_basic'{
-                            content_type = proplists:get_value(content_format, Options),
-                            delivery_mode = 1},
-                        payload = Request#coap_message.payload},
-    amqp_channel:call(PubChannel, BasicPublish, Content),
-    case catch amqp_channel:wait_for_confirms(PubChannel) of
-        true ->
-            coap_exchange:reply(Pid, Sender, Request, changed),
-            amqp_channel:close(PubChannel);
-        % when the destination exchange does not exist
-        {'EXIT', {{shutdown, {server_initiated_close, 404, Error}}, _From}} ->
-            coap_exchange:reply(Pid, Sender, Request, not_found, Error)
-    end,
+% message delivery
+handle_info({#'basic.deliver'{consumer_tag=CTag, delivery_tag=DTag},
+             #amqp_msg{props = Props, payload = Payload}},
+        State=#state{connection=Connection, consumers=Consumers, observers=Observers}) ->
+    {ok, Observer={PeerIP, PeerPortNo, Token}} = dict:find(CTag, Consumers),
+    {ok, Pid} = coap_udp_socket:get_channel(coap_server, {PeerIP, PeerPortNo}),
+
+    Message = content_from_amqp(Props, Payload, #coap_message{type=con, token=Token}),
+    case dict:find(Observer, Observers) of
+        {ok, {Seq, CTag}} ->
+            {SeqNum, NextSeq} = seq_num(Seq),
+            {ok, _} = coap_channel:send_message(Pid,
+                Message#coap_message{options=[{observe, [SeqNum]}]}, {Observer, DTag}),
+            Observers2 = dict:store(Observer, {NextSeq, CTag}, Observers),
+            {noreply, State#state{observers=Observers2}};
+        error ->
+            delete_queue(observer_to_queue(Observer), Connection),
+            {noreply, State}
+    end;
+
+handle_info({coap_ack, _ChId, _Pid, {_Observer, DTag}},
+        State=#state{channel=Channel}) ->
+    amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = DTag}),
     {noreply, State};
 
-handle_info({coap_request, Pid, Sender, Request=#coap_message{method='post', payload=Payload}},
-            State=#state{connection=Connection}) ->
-    {ok, ExChannel} = amqp_connection:open_channel(Connection),
-    {ok, ExType} = application:get_env(rabbitmq_coap_pubsub, exchange_type),
-
-    case core_link:decode(binary_to_list(Payload)) of
-        [{rootless, [Exchange], _}] ->
-            case catch amqp_channel:call(ExChannel,
-                    #'exchange.declare'{exchange = list_to_binary(Exchange),
-                                        durable = true,
-                                        type = ExType}) of
-                #'exchange.declare_ok'{} ->
-                    coap_exchange:reply(Pid, Sender, Request, created),
-                    amqp_channel:close(ExChannel);
-                % when the exchange already exists with different parameters
-                {'EXIT', {{shutdown, {server_initiated_close, 406, Error}}, _From}} ->
-                    coap_exchange:reply(Pid, Sender, Request, forbidden, Error)
-            end
-    end,
+handle_info({coap_error, _ChId, _Pid, {Observer, _DTag}, _Error},
+        State=#state{connection=Connection}) ->
+    % this will cancel the consumers, so 'basic.cancel' will be received
+    delete_queue(observer_to_queue(Observer), Connection),
     {noreply, State};
 
-handle_info({coap_request, Pid, Sender, Request=#coap_message{method='delete', options=Options}},
-            State=#state{vhost=VHost, connection=Connection}) ->
-    {ok, ExChannel} = amqp_connection:open_channel(Connection),
-    Exchange = lists:last(proplists:get_value(uri_path, Options)),
-    ExchangeBin = list_to_binary(Exchange),
-
-    % list bound queues
-    Binds = rabbit_binding:list_for_source(rabbit_misc:r(VHost, exchange, ExchangeBin)),
-
-    case catch amqp_channel:call(ExChannel,
-            #'exchange.delete'{exchange = ExchangeBin}) of
-        #'exchange.delete_ok'{} ->
-            % remove all CoAP consumers bound to this exchange
-            lists:foreach(
-                fun(#binding{destination=Destination}) ->
-                    #resource{name=QName}=Destination,
-                    case QName of
-                        <<"coap/", _Tail/binary>> ->
-                            delete_queue(QName, Connection);
-                        _Else ->
-                            ok
-                    end
-                end, Binds),
-            coap_exchange:reply(Pid, Sender, Request, deleted),
-            amqp_channel:close(ExChannel)
-    end,
-    {noreply, State};
-
-handle_info({coap_request, Pid, Sender, Request}, State) ->
-    coap_exchange:reply(Pid, Sender, Request, method_not_allowed),
+handle_info({coap_request, _ChId, Pid, _Match, Request}, State) ->
+    coap_request:reply(Pid, Request, {error, method_not_allowed}),
     {noreply, State};
 
 handle_info(Msg, State) ->
     rabbit_log:warning("unexpected message ~p", [Msg]),
     {noreply, State}.
+
 
 terminate(_Reason, #state{connection=Connection, channel=Channel}) ->
     amqp_channel:close(Channel),
@@ -245,20 +172,126 @@ terminate(_Reason, #state{connection=Connection, channel=Channel}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-create_and_bind_queue(Durable, QName, Exchange, Connection) ->
+
+% utility functions
+
+% in the init we registered two templates, so we get called twice,
+% but we load all resources in one select
+get_resources(VHost, Prefix, [exchange]) ->
+    [];
+get_resources(VHost, Prefix, [exchange, key]) ->
+    lists:map(
+        fun ({Exch, RK, Content}) -> construct_link(Prefix, Exch, RK, Content) end,
+        mnesia:dirty_select(?LVC_TABLE,
+            [{{cached,{cachekey,{resource,VHost,exchange,'$1'},'$2'},'$3'},
+                [], [{{'$1', '$2', '$3'}}]}])).
+
+construct_link(Prefix, Exch, <<>>, Content) ->
+    {absolute, Prefix++[binary_to_list(Exch)], construct_attributes(Content)};
+construct_link(Prefix, Exch, RK, Content) ->
+    {absolute, Prefix++[binary_to_list(Exch), binary_to_list(RK)], construct_attributes(Content)}.
+
+construct_attributes(#basic_message{content=Content}) ->
+    {#'P_basic'{content_type=ContentType}, Payload} = rabbit_basic:from_content(Content),
+    create_ct_attr(ContentType,
+        create_sz_attr(Payload, [])).
+
+create_ct_attr(undefined, Acc) ->
+    Acc;
+create_ct_attr(ContentType, Acc) ->
+    [{ct, ContentType}|Acc].
+
+% do not display the size for small resources
+create_sz_attr(Content, Acc) when size(Content) < 1280 ->
+    Acc;
+create_sz_attr(Content, Acc) ->
+    [{sz, size(Content)}|Acc].
+
+
+handle_create_topic(Exchange, Pid, Request, State=#state{connection=Connection}) ->
+    {ok, ExChannel} = amqp_connection:open_channel(Connection),
+    case catch amqp_channel:call(ExChannel,
+            #'exchange.declare'{exchange = Exchange,
+                                durable = true,
+                                type = <<"x-lvc">>}) of
+        #'exchange.declare_ok'{} ->
+            coap_request:reply(Pid, Request, {ok, created}),
+            amqp_channel:close(ExChannel);
+        % when the exchange already exists with different parameters
+        {'EXIT', {{shutdown, {server_initiated_close, 406, Error}}, _From}} ->
+            coap_request:reply(Pid, Request, {error, forbidden}, Error)
+    end,
+    {noreply, State}.
+
+handle_delete_topic(Exchange, <<>>, Pid, Request, State=#state{vhost=VHost, connection=Connection}) ->
+    {ok, ExChannel} = amqp_connection:open_channel(Connection),
+    case catch amqp_channel:call(ExChannel,
+            #'exchange.delete'{exchange = Exchange}) of
+        #'exchange.delete_ok'{} ->
+            % remove all CoAP consumers bound to this exchange
+            lists:foreach(
+                fun (#binding{destination=#resource{kind=queue,
+                                                    name= <<"coap/", _Tail/binary>>=QName}}) ->
+                        delete_queue(QName, Connection);
+                    (_Other) ->
+                        ok
+                end,
+                rabbit_binding:list_for_source(rabbit_misc:r(VHost, exchange, Exchange))),
+            coap_request:reply(Pid, Request, {ok, deleted}),
+            amqp_channel:close(ExChannel)
+    end,
+    {noreply, State}.
+
+handle_get(Exchange, Key, Pid, Request, State=#state{vhost=VHost}) ->
+    case mnesia:dirty_read(?LVC_TABLE,
+            #cachekey{exchange=rabbit_misc:r(VHost, exchange, Exchange),
+                      routing_key=Key}) of
+        [] ->
+            coap_request:reply(Pid, Request, {error, not_found});
+        [#cached{content=#basic_message{content=Content}}] ->
+            {Props, Payload} = rabbit_basic:from_content(Content),
+            coap_channel:send_ack(Pid,
+                content_from_amqp(Props, Payload, coap_message:response(Request)))
+    end,
+    {noreply, State}.
+
+handle_subscribe(Observer, Exchange, Key, Pid, Request, State=#state{connection=Connection}) ->
+    QName = observer_to_queue(Observer),
+    delete_queue(QName, Connection),
+    case create_and_bind_queue(QName, Exchange, Key, Connection) of
+        ok ->
+            coap_request:ack(Pid, Request),
+            {noreply, observe_queue(Observer, QName, State)};
+        {error, Error} ->
+            coap_request:reply(Pid, Request, {error, not_found}, Error),
+            {noreply, State}
+    end.
+
+create_and_bind_queue(QName, Exchange, Key, Connection) ->
     {ok, DecChannel} = amqp_connection:open_channel(Connection),
-    case catch amqp_channel:call(DecChannel, #'queue.declare'{queue=QName, durable=Durable}) of
+    case catch amqp_channel:call(DecChannel, #'queue.declare'{queue=QName, durable=true}) of
         #'queue.declare_ok'{} ->
-            case catch amqp_channel:call(DecChannel, #'queue.bind'{queue=QName, exchange=Exchange}) of
+            case catch amqp_channel:call(DecChannel, #'queue.bind'{queue=QName,
+                                                                   exchange=Exchange,
+                                                                   routing_key=Key}) of
                 #'queue.bind_ok'{} ->
                     amqp_channel:close(DecChannel),
-                    ok
+                    ok;
+                {'EXIT', {{shutdown, {server_initiated_close, 404, Error}}, _From}} ->
+                    {error, Error}
             end
     end.
 
-observe_queue(Channel, QName) ->
-    #'basic.consume_ok'{consumer_tag=Tag} = amqp_channel:call(Channel, #'basic.consume'{queue=QName}),
-    Tag.
+observe_queue(Observer, QName, State=#state{channel=Channel, consumers=Consumers, observers=Observers}) ->
+    % get subscription status
+    Seq = case dict:find(Observer, Observers) of
+        {ok, {S, _}} -> S;
+        error -> undefined
+    end,
+    #'basic.consume_ok'{consumer_tag=CTag} = amqp_channel:call(Channel, #'basic.consume'{queue=QName}),
+    Consumers2 = dict:store(CTag, Observer, Consumers),
+    Observers2 = dict:store(Observer, {if Seq == undefined -> 0; true -> Seq end, CTag}, Observers),
+    State#state{consumers=Consumers2, observers=Observers2}.
 
 delete_queue(QName, Connection) ->
     {ok, DelChannel} = amqp_connection:open_channel(Connection),
@@ -266,6 +299,48 @@ delete_queue(QName, Connection) ->
         #'queue.delete_ok'{} ->
             amqp_channel:close(DelChannel)
     end.
+
+content_from_amqp(#'P_basic'{content_type=ContentType, expiration=Expires, message_id=MsgId}, Payload, Msg) ->
+    coap_message:content(ContentType, Payload,
+        set_expiration(Expires,
+            set_mid(MsgId, Msg))).
+
+set_expiration(undefined, Message) ->
+    Message;
+set_expiration(Expiration, Message=#coap_message{options=Options}) ->
+    Message#coap_message{options=[{max_age, [binary_to_integer(Expiration)]}|Options]}.
+
+set_mid(undefined, Message) ->
+    Message;
+set_mid(MsgId, Message=#coap_message{options=Options}) ->
+    Hash = crypto:hash(sha, MsgId),
+    Message#coap_message{options=[{etag, [binary:part(Hash, {0,4})]}|Options]}.
+
+get_match(Id, Match) ->
+    list_to_binary(proplists:get_value(Id, Match, "")).
+
+handle_publish(Exchange, Key, Pid, Request=#coap_message{options=Options, payload=Payload},
+        State=#state{connection=Connection}) ->
+    {ok, PubChannel} = amqp_connection:open_channel(Connection),
+    amqp_channel:call(PubChannel, #'confirm.select'{}),
+
+    BasicPublish = #'basic.publish'{exchange=Exchange,
+                                    routing_key=Key,
+                                    mandatory=true},
+    Content = #amqp_msg{props = #'P_basic'{
+                            content_type = proplists:get_value(content_format, Options),
+                            delivery_mode = 1},
+                        payload = Payload},
+    amqp_channel:call(PubChannel, BasicPublish, Content),
+    case catch amqp_channel:wait_for_confirms(PubChannel) of
+        true ->
+            coap_request:reply(Pid, Request, {ok, changed}),
+            amqp_channel:close(PubChannel);
+        % when the destination exchange does not exist
+        {'EXIT', {{shutdown, {server_initiated_close, 404, Error}}, _From}} ->
+            coap_request:reply(Pid, Request, {error, not_found}, Error)
+    end,
+    {noreply, State}.
 
 
 observer_to_queue({PeerIP, PeerPort, Token}) ->
