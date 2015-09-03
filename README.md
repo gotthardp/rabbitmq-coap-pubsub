@@ -24,31 +24,33 @@ You can use the command-line tool from [libcoap](https://libcoap.net/), or any
 other CoAP client and perform all standard operations:
 
  - Discover the `/ps` function and available resources by `GET /.well-known/core`.
-   The server will return a list of available resources.
+   The broker will return a list of available resources, including the pub/sub function and all topic values.
    <pre>
    $ ./coap-client coap://127.0.0.1/.well-known/core?rt=core.ps
    &lt;/ps>;rt="core.ps",&lt;/ps/topic1>;ct=0;sz=15600
    </pre>
- - Create a topic by `POST /ps "<topic1>"`
+ - Create a topic by `POST /ps "<topic1>"`.
+   The broker will create an x-lvc exchange named "topic1".
    <pre>
    $ ./coap-client -m post coap://127.0.0.1/ps -e "&lt;topic1>"
    </pre>
- - Publish to a topic by `PUT /ps/topic1 "1033.3"`
+ - Publish to a topic by `PUT /ps/topic1 "1033.3"` or `PUT /ps/topic1/key "1033.3"`.
+   The broker will publish a message to the exchange "topic1", optionally using the routing key "key".
    <pre>
    $ ./coap-client -m put coap://127.0.0.1/ps/topic1 -e "1033.3"
    </pre>
- - Get the most recent published value by `GET /ps/topic1`
+ - Get the most recent published value by `GET /ps/topic1` or `GET /ps/topic1/key`
    <pre>
    $ ./coap-client coap://127.0.0.1/ps/topic1
    1033.3
    </pre>
- - Subscribe to a topic by `GET /ps/topic1 Observe:0 Token:XX`
- - Receive publications as `2.05 Content Token:XX`
+ - Subscribe to a topic by `GET /ps/topic1 Observe:0` or `GET /ps/topic1/key Observe:0`
+ - Receive publications as `2.05 Content`
    <pre>
-   $ ./coap-client coap://127.0.0.1/ps/topic1 -s 10 -T "XX"
+   $ ./coap-client coap://127.0.0.1/ps/topic1 -s 10
    </pre>
  - Remove a topic by `DELETE /ps/topic1`<br/>
-   Note, this will also terminate all CoAP observers of this topic.
+   The broker will delete the exchange "topic1" and terminate all CoAP observers of this topic.
    <pre>
    $ ./coap-client -m delete coap://127.0.0.1/ps/topic1
    </pre>
@@ -67,16 +69,17 @@ The implementation intentionally differs from the draft-02 in the following aspe
  - The POST and DELETE operations are idempotent. Creating a topic that already exist
    causes 2.01 "Created" instead of 4.03 "Forbidden". Similarly, deleting a topic
    that does not exist causes 2.02 "Deleted".
+ - Topic values are listed under `.well-known/core` as standard resources.
 
 
 ## Installation
 
 This plug-in requires the
 [Last value caching exchange](https://github.com/rabbitmq/rabbitmq-lvc-plugin).
-Please make sure that both `rabbitmq_lvc` and `rabbitmq-coap-pubsub` are installed.
+Please make sure that both `rabbitmq_lvc` and `rabbitmq_coap_pubsub` are installed.
 
 ### RabbitMQ Configuration
-To change the default settings you may add the `rabbitmq-coap-pubsub` section
+To change the default settings you may add the `rabbitmq_coap_pubsub` section
 to your [RabbitMQ Configuration](https://www.rabbitmq.com/configure.html).
 
 <table>
