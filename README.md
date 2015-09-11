@@ -24,14 +24,16 @@ You can use the command-line tool from [libcoap](https://libcoap.net/), or any
 other CoAP client and perform all standard operations:
 
  - Discover the `/ps` function and available resources by `GET /.well-known/core`.
-   Returns a link to the pub/sub function and a list of resources that can be accessed
-   by the user "anonymous", or an empty list of the user "anonymous" does not exist.
+   Thr broker will return a link to the pub/sub function and a list of resources that
+   can be accessed by the user "anonymous",
+   or an empty list if the user "anonymous" does not exist.
    <pre>
    $ ./coap-client coap://127.0.0.1/.well-known/core?rt=core.ps
    &lt;/ps>;rt="core.ps",&lt;/ps/%2F/topic1>;ct=0;sz=15600
    </pre>
  - Create a topic by `POST /ps/vhost "<topic1>"`.
    The broker will create an x-lvc exchange named "topic1" in a given vhost.
+   The default vhost is called "/", which must be encoded as "%2f".
    <pre>
    $ ./coap-client -m post coap://127.0.0.1/ps/%2f -e "&lt;topic1>"
    </pre>
@@ -111,7 +113,7 @@ to your [RabbitMQ Configuration](https://www.rabbitmq.com/configure.html).
 For example:
 ```erlang
 {rabbitmq_coap_pubsub, [
-    {prefix, ["ps"]}
+    {prefix, [<<"ps">>]}
 ]}
 ```
 
