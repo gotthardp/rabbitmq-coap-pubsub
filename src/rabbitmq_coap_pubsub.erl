@@ -16,18 +16,16 @@
 -export([init/1]).
 
 start(normal, []) ->
-    supervisor:start_link(?MODULE, _Arg = []).
+    supervisor:start_link(?MODULE, []).
 
 stop(_State) ->
     ok.
 
 init([]) ->
-    {ok, Resources} = application:get_env(?MODULE, resources),
+    {ok, Prefix} = application:get_env(?MODULE, prefix),
+    coap_server_content:add_handler(Prefix, rabbit_coap_handler, []),
     {ok, {{one_for_one, 3, 10},
-        lists:foldl(
-            fun({VHost, Prefix}, Acc) ->
-                [{coap_handler, {rabbit_coap_handler, start_link, [VHost, Prefix]},
-                    permanent, 10000, worker, [rabbit_coap_handler]} | Acc]
-            end, [], Resources)}}.
+            [{rabbit_coap_amqp_consumer_sup, {rabbit_coap_amqp_consumer_sup, start_link, []},
+                permanent, infinity, supervisor, []}]}}.
 
 % end of file

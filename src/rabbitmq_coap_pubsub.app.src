@@ -14,9 +14,7 @@
     {registered, []},
     {mod, {rabbitmq_coap_pubsub, []}},
     {env, [
-        {resources, [
-            {<<"/">>, ["ps"]}
-        ]}
+        {prefix, [<<"ps">>]}
     ]},
     {applications, [kernel, stdlib, mnesia, rabbit, amqp_client, gen_coap]}]}.
 
