@@ -1,4 +1,6 @@
 build
+cover
 dist
 ebin
 erl_crash.dump
+test/TEST-*.xml

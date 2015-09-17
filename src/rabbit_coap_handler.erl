@@ -13,8 +13,8 @@
 -include_lib("gen_coap/include/coap.hrl").
 -include_lib("rabbitmq_lvc/include/rabbit_lvc_plugin.hrl").
 
--export([coap_discover/2, coap_get/4, coap_subscribe/4, coap_unsubscribe/4,
-    coap_post/4, coap_put/4, coap_delete/4]).
+-export([coap_discover/2, coap_get/5, coap_subscribe/5, coap_unsubscribe/5,
+    coap_post/5, coap_put/5, coap_delete/5]).
 
 % DISCOVER
 coap_discover(Prefix, _Args) ->
@@ -36,11 +36,11 @@ get_resources(User, Prefix) ->
                 [], [{{'$1', '$2', '$3', '$4'}}]}])).
 
 % GET
-coap_get(_ChId, Channel, [VHost, Exchange], Request) ->
+coap_get(_ChId, Channel, _Prefix, [VHost, Exchange], Request) ->
     handle_get(VHost, Exchange, <<>>, Channel, Request);
-coap_get(_ChId, Channel, [VHost, Exchange, Key], Request) ->
+coap_get(_ChId, Channel, _Prefix, [VHost, Exchange, Key], Request) ->
     handle_get(VHost, Exchange, Key, Channel, Request);
-coap_get(_ChId, Channel, _Else, Request) ->
+coap_get(_ChId, Channel, _Prefix, _Else, Request) ->
     coap_request:reply(Channel, Request, {error, not_found}).
 
 handle_get(VHost, Exchange, Key, Channel, Request) ->
@@ -68,10 +68,10 @@ handle_get(User, VHost, Exchange, Key, Channel, Request) ->
     end.
 
 % SUBSCRIBE
-coap_subscribe({PeerIP, PeerPort}, Channel, [VHost, Exchange], Request=#coap_message{token=Token}) ->
+coap_subscribe({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange], Request=#coap_message{token=Token}) ->
     Observer = {PeerIP, PeerPort, Token},
     handle_subscribe(Observer, VHost, Exchange, <<>>, Channel, Request);
-coap_subscribe({PeerIP, PeerPort}, Channel, [VHost, Exchange, Key], Request=#coap_message{token=Token}) ->
+coap_subscribe({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange, Key], Request=#coap_message{token=Token}) ->
     Observer = {PeerIP, PeerPort, Token},
     handle_subscribe(Observer, VHost, Exchange, Key, Channel, Request).
 
@@ -87,10 +87,10 @@ handle_subscribe(Observer, VHost, Exchange, Key, Channel, Request) ->
     end.
 
 % UNSUBSCRIBE
-coap_unsubscribe({PeerIP, PeerPort}, Channel, [VHost, Exchange], Request=#coap_message{token=Token}) ->
+coap_unsubscribe({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange], Request=#coap_message{token=Token}) ->
     Observer = {PeerIP, PeerPort, Token},
     handle_unsubscribe(Observer, VHost, Exchange, <<>>, Channel, Request);
-coap_unsubscribe({PeerIP, PeerPort}, Channel, [VHost, Exchange, Key], Request=#coap_message{token=Token}) ->
+coap_unsubscribe({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange, Key], Request=#coap_message{token=Token}) ->
     Observer = {PeerIP, PeerPort, Token},
     handle_unsubscribe(Observer, VHost, Exchange, Key, Channel, Request).
 
@@ -99,7 +99,7 @@ handle_unsubscribe(Observer, VHost, Exchange, Key, Channel, Request) ->
     handle_get(VHost, Exchange, Key, Channel, Request).
 
 % CREATE
-coap_post({PeerIP, PeerPort}, Channel, [VHost], Request=#coap_message{token=Token, payload=Payload}) ->
+coap_post({PeerIP, PeerPort}, Channel, _Prefix, [VHost], Request=#coap_message{token=Token, payload=Payload}) ->
     Observer = {PeerIP, PeerPort, Token},
     case core_link:decode(Payload) of
         [{rootless, [Exchange], _}] ->
@@ -107,7 +107,7 @@ coap_post({PeerIP, PeerPort}, Channel, [VHost], Request=#coap_message{token=Toke
         _Else ->
             coap_request:reply(Channel, Request, {error, bad_request})
     end;
-coap_post(_ChId, Channel, _Else, Request) ->
+coap_post(_ChId, Channel, _Prefix, _Else, Request) ->
     coap_request:reply(Channel, Request, {error, forbidden}).
 
 handle_create_topic(Observer, VHost, Exchange, Channel, Request) ->
@@ -119,10 +119,10 @@ handle_create_topic(Observer, VHost, Exchange, Channel, Request) ->
     end.
 
 % DELETE
-coap_delete({PeerIP, PeerPort}, Channel, [VHost, Exchange], Request=#coap_message{token=Token}) ->
+coap_delete({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange], Request=#coap_message{token=Token}) ->
     Observer = {PeerIP, PeerPort, Token},
     handle_delete_topic(Observer, VHost, Exchange, Channel, Request);
-coap_delete(_ChId, Channel, _Else, Request) ->
+coap_delete(_ChId, Channel, _Prefix, _Else, Request) ->
     coap_request:reply(Channel, Request, {error, not_found}).
 
 handle_delete_topic(Observer, VHost, Exchange, Channel, Request) ->
@@ -134,13 +134,13 @@ handle_delete_topic(Observer, VHost, Exchange, Channel, Request) ->
     end.
 
 % PUBLISH
-coap_put({PeerIP, PeerPort}, Channel, [VHost, Exchange], Request=#coap_message{token=Token}) ->
+coap_put({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange], Request=#coap_message{token=Token}) ->
     Observer = {PeerIP, PeerPort, Token},
     handle_publish(Observer, VHost, Exchange, "", Channel, Request);
-coap_put({PeerIP, PeerPort}, Channel, [VHost, Exchange, Key], Request=#coap_message{token=Token}) ->
+coap_put({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange, Key], Request=#coap_message{token=Token}) ->
     Observer = {PeerIP, PeerPort, Token},
     handle_publish(Observer, VHost, Exchange, Key, Channel, Request);
-coap_put(_ChId, Channel, _Else, Request) ->
+coap_put(_ChId, Channel, _Prefix, _Else, Request) ->
     coap_request:reply(Channel, Request, {error, not_found}).
 
 handle_publish(Observer, VHost, Exchange, Key, Channel, Request) ->
