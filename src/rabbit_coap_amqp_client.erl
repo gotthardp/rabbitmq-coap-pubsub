@@ -12,10 +12,10 @@
 -include_lib("amqp_client/include/amqp_client.hrl").
 -include_lib("gen_coap/include/coap.hrl").
 
--export([init_connection/2, create_topic/3, delete_topic/3, publish/5]).
--export([set_message_from_amqp/3]).
+-export([init_connection/2, create_topic/3, delete_topic/3, create_and_bind_queue/4,
+    publish/5, message_to_content/2]).
 
-init_connection({PeerIP, PeerPortNo, _Token}, VHost) ->
+init_connection({PeerIP, PeerPortNo}, VHost) ->
     amqp_connection:start(
         #amqp_params_direct{username = <<"anonymous">>,
                             virtual_host = VHost,
@@ -24,8 +24,8 @@ init_connection({PeerIP, PeerPortNo, _Token}, VHost) ->
                                                               peer_host = PeerIP,
                                                               peer_port = PeerPortNo}}).
 
-create_topic(Observer, VHost, Exchange) ->
-    case init_connection(Observer, VHost) of
+create_topic(ChId, VHost, Exchange) ->
+    case init_connection(ChId, VHost) of
         {ok, Connection} -> create_topic0(Connection, VHost, Exchange);
         {error, access_refused} -> {error, forbidden, "Access Refused"}
     end.
@@ -44,8 +44,8 @@ create_topic0(Connection, _VHost, Exchange) ->
             {error, forbidden, Error}
     end.
 
-delete_topic(Observer, VHost, Exchange) ->
-    case init_connection(Observer, VHost) of
+delete_topic(ChId, VHost, Exchange) ->
+    case init_connection(ChId, VHost) of
         {ok, Connection} -> delete_topic0(Connection, VHost, Exchange);
         {error, access_refused} -> {error, forbidden, "Access Refused"}
     end.
@@ -69,6 +69,21 @@ delete_topic0(Connection, VHost, Exchange) ->
             ok
     end.
 
+create_and_bind_queue(Connection, QName, Exchange, Key) ->
+    {ok, DecChannel} = amqp_connection:open_channel(Connection),
+    case catch amqp_channel:call(DecChannel, #'queue.declare'{queue=QName}) of
+        #'queue.declare_ok'{} ->
+            case catch amqp_channel:call(DecChannel, #'queue.bind'{queue=QName,
+                                                                   exchange=Exchange,
+                                                                   routing_key=Key}) of
+                #'queue.bind_ok'{} ->
+                    amqp_channel:close(DecChannel),
+                    ok;
+                {'EXIT', {{shutdown, {server_initiated_close, 404, Error}}, _From}} ->
+                    {error, not_found, Error}
+            end
+    end.
+
 delete_queue(QName, Connection) ->
     {ok, DelChannel} = amqp_connection:open_channel(Connection),
     case catch amqp_channel:call(DelChannel, #'queue.delete'{queue=QName}) of
@@ -76,13 +91,13 @@ delete_queue(QName, Connection) ->
             amqp_channel:close(DelChannel)
     end.
 
-publish(Observer, VHost, Exchange, Key, Request) ->
-    case init_connection(Observer, VHost) of
-        {ok, Connection} -> publish0(Connection, VHost, Exchange, Key, Request);
+publish(ChId, VHost, Exchange, Key, Content) ->
+    case init_connection(ChId, VHost) of
+        {ok, Connection} -> publish0(Connection, VHost, Exchange, Key, Content);
         {error, access_refused} -> {error, forbidden, "Access Refused"}
     end.
 
-publish0(Connection, _VHost, Exchange, Key, #coap_message{options=Options, payload=Payload}) ->
+publish0(Connection, _VHost, Exchange, Key, #coap_content{format=ContentFormat, payload=Payload}) ->
     {ok, PubChannel} = amqp_connection:open_channel(Connection),
     amqp_channel:call(PubChannel, #'confirm.select'{}),
 
@@ -90,7 +105,7 @@ publish0(Connection, _VHost, Exchange, Key, #coap_message{options=Options, paylo
                                     routing_key=Key,
                                     mandatory=true},
     Content = #amqp_msg{props = #'P_basic'{
-                            content_type = proplists:get_value(content_format, Options),
+                            content_type = ContentFormat,
                             delivery_mode = 1},
                         payload = Payload},
     amqp_channel:call(PubChannel, BasicPublish, Content),
@@ -103,16 +118,17 @@ publish0(Connection, _VHost, Exchange, Key, #coap_message{options=Options, paylo
             {error, not_found, Error}
     end.
 
-set_message_from_amqp(#'P_basic'{content_type=ContentType, expiration=Expires, message_id=MsgId}, Payload, Msg) ->
-    % convert AMQP expires[milliseconds] to CoAP max-age[seconds]
-    coap_message:set(max_age, if Expires == undefined -> undefined;
-                                 true -> trunc(binary_to_integer(Expires)/1000)
-                              end,
+message_to_content(#'P_basic'{content_type=ContentType, expiration=Expires, message_id=MsgId}, Payload) ->
+    #coap_content{
         % etag is the first 4 bytes of sha-hash
-        coap_message:set(etag, if MsgId == undefined -> undefined;
-                                  true -> binary:part(crypto:hash(sha, MsgId), {0,4})
-                               end,
-            coap_message:set(content_format, ContentType,
-                coap_message:set_payload(Payload, Msg)))).
+        etag = if MsgId == undefined -> undefined;
+                  true -> binary:part(crypto:hash(sha, MsgId), {0,4})
+               end,
+        % convert AMQP expires[milliseconds] to CoAP max-age[seconds]
+        max_age = if Expires == undefined -> undefined;
+                     true -> trunc(binary_to_integer(Expires)/1000)
+                  end,
+        format = ContentType,
+        payload = Payload}.
 
 % end of file

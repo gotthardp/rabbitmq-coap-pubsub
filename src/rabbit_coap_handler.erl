@@ -8,13 +8,16 @@
 %
 
 -module(rabbit_coap_handler).
+-behaviour(coap_resource).
+
+-export([coap_discover/2, coap_get/3, coap_post/4, coap_put/4, coap_delete/3,
+    coap_observe/3, coap_unobserve/1, handle_info/2]).
 
 -include_lib("amqp_client/include/amqp_client.hrl").
 -include_lib("gen_coap/include/coap.hrl").
 -include_lib("rabbitmq_lvc/include/rabbit_lvc_plugin.hrl").
 
--export([coap_discover/2, coap_get/5, coap_subscribe/5, coap_unsubscribe/5,
-    coap_post/5, coap_put/5, coap_delete/5]).
+-record(obstate, {connection, channel}).
 
 % DISCOVER
 coap_discover(Prefix, _Args) ->
@@ -36,120 +39,108 @@ get_resources(User, Prefix) ->
                 [], [{{'$1', '$2', '$3', '$4'}}]}])).
 
 % GET
-coap_get(_ChId, Channel, _Prefix, [VHost, Exchange], Request) ->
-    handle_get(VHost, Exchange, <<>>, Channel, Request);
-coap_get(_ChId, Channel, _Prefix, [VHost, Exchange, Key], Request) ->
-    handle_get(VHost, Exchange, Key, Channel, Request);
-coap_get(_ChId, Channel, _Prefix, _Else, Request) ->
-    coap_request:reply(Channel, Request, {error, not_found}).
+coap_get(_ChId, _Prefix, [VHost, Exchange]) ->
+    handle_get(VHost, Exchange, <<>>);
+coap_get(_ChId, _Prefix, [VHost, Exchange, Key]) ->
+    handle_get(VHost, Exchange, Key);
+coap_get(_ChId, _Prefix, _Else) ->
+    {error, not_found}.
 
-handle_get(VHost, Exchange, Key, Channel, Request) ->
+handle_get(VHost, Exchange, Key) ->
     case rabbit_access_control:check_user_login(<<"anonymous">>, []) of
-        {ok, User} -> handle_get(User, VHost, Exchange, Key, Channel, Request);
-        {refused,_,_,_} -> coap_request:reply(Channel, Request, {error, forbidden})
+        {ok, User} -> handle_get(User, VHost, Exchange, Key);
+        {refused,_,_,_} -> {error, forbidden}
     end.
 
-handle_get(User, VHost, Exchange, Key, Channel, Request) ->
+handle_get(User, VHost, Exchange, Key) ->
     case catch rabbit_access_control:check_resource_access(User, rabbit_misc:r(VHost, exchange, Exchange), read) of
         ok ->
             case mnesia:dirty_read(?LVC_TABLE,
                     #cachekey{exchange=rabbit_misc:r(VHost, exchange, Exchange),
                               routing_key=Key}) of
                 [] ->
-                    coap_request:reply(Channel, Request, {error, not_found});
+                    {error, not_found};
                 [#cached{content=#basic_message{content=Content}}] ->
                     {Props, Payload} = rabbit_basic:from_content(Content),
-                    coap_channel:send_ack(Channel,
-                        rabbit_coap_amqp_client:set_message_from_amqp(Props, Payload,
-                            coap_message:response({ok, content}, Request)))
+                    rabbit_coap_amqp_client:message_to_content(Props, Payload)
             end;
         {'EXIT', _} ->
-            coap_request:reply(Channel, Request, {error, forbidden})
+            {error, forbidden}
     end.
 
-% SUBSCRIBE
-coap_subscribe({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange], Request=#coap_message{token=Token}) ->
-    Observer = {PeerIP, PeerPort, Token},
-    handle_subscribe(Observer, VHost, Exchange, <<>>, Channel, Request);
-coap_subscribe({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange, Key], Request=#coap_message{token=Token}) ->
-    Observer = {PeerIP, PeerPort, Token},
-    handle_subscribe(Observer, VHost, Exchange, Key, Channel, Request).
+% CREATE
+coap_post(ChId, _Prefix, [VHost], #coap_content{payload=Payload}) ->
+    case core_link:decode(Payload) of
+        [{rootless, [Exchange], _}] -> rabbit_coap_amqp_client:create_topic(ChId, VHost, Exchange);
+        _Else -> {error, bad_request}
+    end;
+coap_post(_ChId, _Prefix, _Else, _Content) ->
+    {error, forbidden}.
 
-handle_subscribe(Observer, VHost, Exchange, Key, Channel, Request) ->
-    case rabbit_coap_amqp_consumer_sup:restart_consumer(Observer, VHost, Exchange, Key) of
-        {ok, _ConsumerPid} ->
-            coap_request:ack(Channel, Request);
-        {error, {{Code, Error}, _ChildSpec}} ->
-            coap_request:reply(Channel, Request, {error, Code}, Error);
-        {error, {Error, _ChildSpec}} ->
-            coap_request:reply(Channel, Request, {error, internal_server_error},
-                lists:flatten(io_lib:format("~p",[Error])))
+% PUBLISH
+coap_put(ChId, _Prefix, [VHost, Exchange], Content) ->
+    rabbit_coap_amqp_client:publish(ChId, VHost, Exchange, "", Content);
+coap_put(ChId, _Prefix, [VHost, Exchange, Key], Content) ->
+    rabbit_coap_amqp_client:publish(ChId, VHost, Exchange, Key, Content);
+coap_put(_ChId, _Prefix, _Else, _Content) ->
+    {error, not_found}.
+
+% DELETE
+coap_delete(ChId, _Prefix, [VHost, Exchange]) ->
+    rabbit_coap_amqp_client:delete_topic(ChId, VHost, Exchange);
+coap_delete(_ChId, _Prefix, _Else) ->
+    {error, not_found}.
+
+% SUBSCRIBE
+coap_observe(ChId, _Prefix, [VHost, Exchange]) ->
+    handle_observe(ChId, VHost, Exchange, <<>>);
+coap_observe(ChId, _Prefix, [VHost, Exchange, Key]) ->
+    handle_observe(ChId, VHost, Exchange, Key).
+
+handle_observe(ChId, VHost, Exchange, Key) ->
+    case rabbit_coap_amqp_client:init_connection(ChId, VHost) of
+        {ok, Connection} ->
+            QName = observer_to_queue(ChId),
+            case rabbit_coap_amqp_client:create_and_bind_queue(Connection, QName, Exchange, Key) of
+                ok ->
+                    {ok, Channel} = amqp_connection:open_channel(Connection),
+                    #'basic.consume_ok'{} = amqp_channel:call(Channel, #'basic.consume'{queue=QName}),
+                    {ok, #obstate{connection=Connection, channel=Channel}};
+                Error ->
+                    Error
+            end;
+        {error, access_refused} ->
+            {error, forbidden, "Refused"};
+        {error, {auth_failure, Error}} ->
+            {error, forbidden, Error}
     end.
 
 % UNSUBSCRIBE
-coap_unsubscribe({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange], Request=#coap_message{token=Token}) ->
-    Observer = {PeerIP, PeerPort, Token},
-    handle_unsubscribe(Observer, VHost, Exchange, <<>>, Channel, Request);
-coap_unsubscribe({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange, Key], Request=#coap_message{token=Token}) ->
-    Observer = {PeerIP, PeerPort, Token},
-    handle_unsubscribe(Observer, VHost, Exchange, Key, Channel, Request).
+coap_unobserve(#obstate{connection=Connection, channel=Channel}) ->
+    amqp_channel:close(Channel),
+    amqp_connection:close(Connection),
+    ok.
 
-handle_unsubscribe(Observer, VHost, Exchange, Key, Channel, Request) ->
-    rabbit_coap_amqp_consumer_sup:stop_consumer(Observer),
-    handle_get(VHost, Exchange, Key, Channel, Request).
+handle_info(#'basic.consume_ok'{}, State) ->
+    {ok, State};
 
-% CREATE
-coap_post({PeerIP, PeerPort}, Channel, _Prefix, [VHost], Request=#coap_message{token=Token, payload=Payload}) ->
-    Observer = {PeerIP, PeerPort, Token},
-    case core_link:decode(Payload) of
-        [{rootless, [Exchange], _}] ->
-            handle_create_topic(Observer, VHost, Exchange, Channel, Request);
-        _Else ->
-            coap_request:reply(Channel, Request, {error, bad_request})
-    end;
-coap_post(_ChId, Channel, _Prefix, _Else, Request) ->
-    coap_request:reply(Channel, Request, {error, forbidden}).
+handle_info(#'basic.cancel'{}, State) ->
+    rabbit_log:info("cancelled observer"),
+    {stop, normal, State};
 
-handle_create_topic(Observer, VHost, Exchange, Channel, Request) ->
-    case rabbit_coap_amqp_client:create_topic(Observer, VHost, Exchange) of
-        ok ->
-            coap_request:reply(Channel, Request, {ok, created});
-        {error, Error, Text} ->
-            coap_request:reply(Channel, Request, {error, Error}, Text)
-    end.
+handle_info({#'basic.deliver'{delivery_tag=DTag}, #amqp_msg{props = Props, payload = Payload}}, State) ->
+    {notify, rabbit_coap_amqp_client:message_to_content(Props, Payload), State};
 
-% DELETE
-coap_delete({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange], Request=#coap_message{token=Token}) ->
-    Observer = {PeerIP, PeerPort, Token},
-    handle_delete_topic(Observer, VHost, Exchange, Channel, Request);
-coap_delete(_ChId, Channel, _Prefix, _Else, Request) ->
-    coap_request:reply(Channel, Request, {error, not_found}).
+handle_info({coap_ack, _ChId, _Pid, {DTag}}, State=#obstate{channel=Channel}) ->
+    amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = DTag}),
+    {noreply, State};
 
-handle_delete_topic(Observer, VHost, Exchange, Channel, Request) ->
-    case rabbit_coap_amqp_client:delete_topic(Observer, VHost, Exchange) of
-        ok ->
-            coap_request:reply(Channel, Request, {ok, deleted});
-        {error, Error, Text} ->
-            coap_request:reply(Channel, Request, {error, Error}, Text)
-    end.
+handle_info({coap_error, _ChId, _Pid, {_DTag}, _Error}, State) ->
+    {stop, normal, State};
 
-% PUBLISH
-coap_put({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange], Request=#coap_message{token=Token}) ->
-    Observer = {PeerIP, PeerPort, Token},
-    handle_publish(Observer, VHost, Exchange, "", Channel, Request);
-coap_put({PeerIP, PeerPort}, Channel, _Prefix, [VHost, Exchange, Key], Request=#coap_message{token=Token}) ->
-    Observer = {PeerIP, PeerPort, Token},
-    handle_publish(Observer, VHost, Exchange, Key, Channel, Request);
-coap_put(_ChId, Channel, _Prefix, _Else, Request) ->
-    coap_request:reply(Channel, Request, {error, not_found}).
-
-handle_publish(Observer, VHost, Exchange, Key, Channel, Request) ->
-    case rabbit_coap_amqp_client:publish(Observer, VHost, Exchange, Key, Request) of
-        ok ->
-            coap_request:reply(Channel, Request, {ok, changed});
-        {error, Error, Text} ->
-            coap_request:reply(Channel, Request, {error, Error}, Text)
-    end.
+handle_info(Msg, State) ->
+    rabbit_log:warning("unexpected message ~p", [Msg]),
+    {noreply, State}.
 
 
 % utility functions
@@ -175,5 +166,14 @@ create_sz_attr(Content, Acc) when size(Content) < 1280 ->
 create_sz_attr(Content, Acc) ->
     [{sz, size(Content)}|Acc].
 
+observer_to_queue({PeerIP, PeerPort}) ->
+    Str = lists:concat(["coap/", inet:ntoa(PeerIP), ":", PeerPort]),
+    list_to_binary(Str).
+
+queue_to_observer(Binary) ->
+    [<<"coap">>, IPStr, PortStr] = binary:split(Binary, [<<"/">>, <<":">>], [global]),
+    {ok, PeerIP} = inet:parse_address(binary_to_list(IPStr)),
+    PeerPort = list_to_integer(binary_to_list(PortStr)),
+    {PeerIP, PeerPort}.
 
 % end of file
