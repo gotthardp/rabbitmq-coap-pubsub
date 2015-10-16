@@ -10,9 +10,11 @@
 -module(rabbit_coap_test).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("gen_coap/include/coap.hrl").
 -include_lib("amqp_client/include/amqp_client.hrl").
 
 basic_test_() ->
-    [?_assertEqual({ok, content, <<"</ps>;rt=\"core.ps\"">>}, coap_client:request(get, "coap://127.0.0.1/.well-known/core"))].
+    [?_assertMatch({ok,content,#coap_content{format= <<"application/link-format">>, payload= <<"</ps>;rt=\"core.ps\"">>}},
+        coap_client:request(get, "coap://127.0.0.1/.well-known/core"))].
 
 % end of file

@@ -12,10 +12,9 @@
     {vsn, "0.0.1"},
     {modules, []},
     {registered, []},
-    {mod, {rabbitmq_coap_pubsub, []}},
     {env, [
         {prefix, [<<"ps">>]}
     ]},
-    {applications, [kernel, stdlib, mnesia, rabbit, amqp_client, gen_coap]}]}.
+    {applications, [kernel, stdlib, rabbit, amqp_client, gen_coap]}]}.
 
 % end of file

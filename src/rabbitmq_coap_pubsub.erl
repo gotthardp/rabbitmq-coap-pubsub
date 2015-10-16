@@ -8,24 +8,16 @@
 %
 
 -module(rabbitmq_coap_pubsub).
+-export([init_plugin/0]).
 
--behaviour(application).
--export([start/2, stop/1]).
+-rabbit_boot_step({?MODULE,
+                   [{description, "CoAP interface"},
+                    {mfa, {?MODULE, init_plugin, []}}
+                   ]}).
 
--behaviour(supervisor).
--export([init/1]).
-
-start(normal, []) ->
-    supervisor:start_link(?MODULE, []).
-
-stop(_State) ->
-    ok.
-
-init([]) ->
+init_plugin() ->
     {ok, Prefix} = application:get_env(?MODULE, prefix),
-    coap_server_content:add_handler(Prefix, rabbit_coap_handler, []),
-    {ok, {{one_for_one, 3, 10},
-            [{rabbit_coap_amqp_consumer_sup, {rabbit_coap_amqp_consumer_sup, start_link, []},
-                permanent, infinity, supervisor, []}]}}.
+    coap_server_registry:add_handler(Prefix, rabbit_coap_handler, []),
+    ok.
 
 % end of file
