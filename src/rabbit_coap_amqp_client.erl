@@ -12,8 +12,8 @@
 -include_lib("amqp_client/include/amqp_client.hrl").
 -include_lib("gen_coap/include/coap.hrl").
 
--export([init_connection/2, create_topic/3, delete_topic/3, create_and_bind_queue/4,
-    publish/5, message_to_content/2]).
+-export([init_connection/2, with_connection/3, create_topic/3, delete_topic/3,
+    create_and_bind_queue/4, publish/5, message_to_content/2]).
 
 init_connection({PeerIP, PeerPortNo}, VHost) ->
     amqp_connection:start(
@@ -24,13 +24,22 @@ init_connection({PeerIP, PeerPortNo}, VHost) ->
                                                               peer_host = PeerIP,
                                                               peer_port = PeerPortNo}}).
 
+with_connection(ChId, VHost, Fun) ->
+    Connection = init_connection(ChId, VHost),
+    Res = apply(Fun, [Connection]),
+    case Connection of
+        {ok, Conn} -> amqp_connection:close(Conn);
+        _Else -> ok
+    end,
+    Res.
+
 create_topic(ChId, VHost, Exchange) ->
-    case init_connection(ChId, VHost) of
-        {ok, Connection} -> create_topic0(Connection, VHost, Exchange);
-        {error, access_refused} ->
-            rabbit_log:warning("User ~p cannot access VHost ~p.~n", [ChId, VHost]),
-            {error, forbidden, "Access Refused"}
-    end.
+    with_connection(ChId, VHost,
+        fun ({ok, Connection}) -> create_topic0(Connection, VHost, Exchange);
+            ({error, access_refused}) ->
+                rabbit_log:warning("User ~p cannot access VHost ~p.~n", [ChId, VHost]),
+                {error, forbidden, "Access Refused"}
+        end).
 
 create_topic0(Connection, _VHost, Exchange) ->
     {ok, ExChannel} = amqp_connection:open_channel(Connection),
@@ -47,10 +56,10 @@ create_topic0(Connection, _VHost, Exchange) ->
     end.
 
 delete_topic(ChId, VHost, Exchange) ->
-    case init_connection(ChId, VHost) of
-        {ok, Connection} -> delete_topic0(Connection, VHost, Exchange);
-        {error, access_refused} -> {error, forbidden, "Access Refused"}
-    end.
+    with_connection(ChId, VHost,
+        fun ({ok, Connection}) -> delete_topic0(Connection, VHost, Exchange);
+            ({error, access_refused}) -> {error, forbidden, "Access Refused"}
+        end).
 
 delete_topic0(Connection, VHost, Exchange) ->
     {ok, ExChannel} = amqp_connection:open_channel(Connection),
@@ -93,10 +102,10 @@ delete_queue(QName, Connection) ->
     end.
 
 publish(ChId, VHost, Exchange, Key, Content) ->
-    case init_connection(ChId, VHost) of
-        {ok, Connection} -> publish0(Connection, VHost, Exchange, Key, Content);
-        {error, access_refused} -> {error, forbidden, "Access Refused"}
-    end.
+    with_connection(ChId, VHost,
+        fun ({ok, Connection}) -> publish0(Connection, VHost, Exchange, Key, Content);
+            ({error, access_refused}) -> {error, forbidden, "Access Refused"}
+        end).
 
 publish0(Connection, _VHost, Exchange, Key,
         #coap_content{etag=ETag, max_age=MaxAge, format=ContentFormat, payload=Payload}) ->

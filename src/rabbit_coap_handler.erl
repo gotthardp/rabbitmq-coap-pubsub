@@ -40,7 +40,7 @@ get_resources(User, Prefix) ->
 
 % GET
 coap_get(_ChId, _Prefix, [VHost, Exchange]) ->
-    handle_get(VHost, Exchange, undefined);
+    handle_get(VHost, Exchange, <<"">>);
 coap_get(_ChId, _Prefix, [VHost, Exchange, Key]) ->
     handle_get(VHost, Exchange, Key);
 coap_get(_ChId, _Prefix, _Else) ->
@@ -79,7 +79,7 @@ coap_post(_ChId, _Prefix, _Else, _Content) ->
 
 % PUBLISH
 coap_put(ChId, _Prefix, [VHost, Exchange], Content) ->
-    rabbit_coap_amqp_client:publish(ChId, VHost, Exchange, undefined, Content);
+    rabbit_coap_amqp_client:publish(ChId, VHost, Exchange, <<"">>, Content);
 coap_put(ChId, _Prefix, [VHost, Exchange, Key], Content) ->
     rabbit_coap_amqp_client:publish(ChId, VHost, Exchange, Key, Content);
 coap_put(_ChId, _Prefix, _Else, _Content) ->
@@ -93,7 +93,7 @@ coap_delete(_ChId, _Prefix, _Else) ->
 
 % SUBSCRIBE
 coap_observe(ChId, _Prefix, [VHost, Exchange]) ->
-    handle_observe(ChId, VHost, Exchange, undefined);
+    handle_observe(ChId, VHost, Exchange, <<"">>);
 coap_observe(ChId, _Prefix, [VHost, Exchange, Key]) ->
     handle_observe(ChId, VHost, Exchange, Key).
 
@@ -129,8 +129,10 @@ handle_info(#'basic.cancel'{}, State) ->
     rabbit_log:info("cancelled observer"),
     {stop, State};
 % new message received
-handle_info({#'basic.deliver'{}, Message=#amqp_msg{}}, State=#obstate{last_update=undefined}) ->
+handle_info({#'basic.deliver'{delivery_tag=DTag}, Message=#amqp_msg{}},
+        State=#obstate{channel=Channel, last_update=undefined}) ->
     % ignore the first update, which is sent just after binding the exchange
+    amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = DTag}),
     {noreply, State#obstate{last_update=Message}};
 handle_info({#'basic.deliver'{delivery_tag=DTag}, Message=#amqp_msg{props=Props, payload=Payload}}, State) ->
     {notify, DTag, rabbit_coap_amqp_client:message_to_content(Props, Payload),
@@ -147,7 +149,7 @@ coap_ack(DTag, State=#obstate{channel=Channel}) ->
 
 % utility functions
 
-construct_link(Prefix, VHost, Exch, undefined, Content) ->
+construct_link(Prefix, VHost, Exch, <<"">>, Content) ->
     {absolute, Prefix++[VHost, Exch], construct_attributes(Content)};
 construct_link(Prefix, VHost, Exch, RK, Content) ->
     {absolute, Prefix++[VHost, Exch, RK], construct_attributes(Content)}.
