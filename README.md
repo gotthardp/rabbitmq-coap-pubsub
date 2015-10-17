@@ -15,6 +15,18 @@ This is an experimental implementation of the
 [draft-koster-core-coap-pubsub-02](https://www.ietf.org/id/draft-koster-core-coap-pubsub-02.txt).
 Not for operational use.
 
+The implementation is based on the
+[Generic Erlang CoAP Client/Server](https://github.com/gotthardp/gen_coap).
+It supports the following features:
+ - CoAP core protocol [RFC 7252](https://tools.ietf.org/rfc/rfc7252.txt)
+ - CoAP Observe option [RFC 7641](https://tools.ietf.org/rfc/rfc7641.txt)
+ - Block-wise transfers in CoAP [draft-ietf-core-block-18](https://tools.ietf.org/id/draft-ietf-core-block-18.txt)
+
+It does not (yet) support:
+ - Secure transport, based on DTLS
+ - Uri-Query option
+
+
 ## Interactions
 
 ### Quick Introduction
@@ -67,13 +79,20 @@ The authenticated DTLS access is not supported (for now).
 ### RabbitMQ Behaviour
 
 Each CoAP topic is implemented as an RabbitMQ exchange. Subscription to a topic is
-implemented using a temporary RabbitMQ queue bound to that exchange. The observers
-are persistent, i.e. survive RabbitMQ restart.
+implemented using a temporary RabbitMQ queue bound to that exchange.
 
-Names of the temporary queues are composed from a prefix `coap/`, IP:port of the
-subscriber and the token characters. For example, a subscription from 127.0.0.1:40212
-using the token `HH` will be served by the queue `coap/127.0.0.1:40212/4848`. Deleting
-this queue will forcibly terminate the observer.
+Names of the temporary queues are composed from a prefix `coap/` and IP:port of the
+subscriber. For example, a subscription from 127.0.0.1:40212 will be served by the
+queue `coap/127.0.0.1:40212`. Deleting this queue will forcibly terminate the observer.
+
+The message attributes gets converted as shown in the following table:
+
+  AMQP                       | CoAP
+ ----------------------------|----------------------------
+  message_id (<= 8 bytes)    | ETag
+  4 bytes of SHA(message_id) | ETag (from AMQP)
+  expiration [milliseconds]  | Max-Age [seconds]
+  content_type               | Content-Format
 
 The implementation intentionally differs from the draft-02 in the following aspects:
  - The POST and DELETE operations are idempotent. Creating a topic that already exist
