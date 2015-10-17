@@ -27,7 +27,9 @@ init_connection({PeerIP, PeerPortNo}, VHost) ->
 create_topic(ChId, VHost, Exchange) ->
     case init_connection(ChId, VHost) of
         {ok, Connection} -> create_topic0(Connection, VHost, Exchange);
-        {error, access_refused} -> {error, forbidden, "Access Refused"}
+        {error, access_refused} ->
+            rabbit_log:warning("User ~p cannot access VHost ~p.~n", [ChId, VHost]),
+            {error, forbidden, "Access Refused"}
     end.
 
 create_topic0(Connection, _VHost, Exchange) ->
@@ -38,7 +40,7 @@ create_topic0(Connection, _VHost, Exchange) ->
                                 type = <<"x-lvc">>}) of
         #'exchange.declare_ok'{} ->
             amqp_channel:close(ExChannel),
-            ok;
+            {ok, created, #coap_content{}};
         % when the exchange already exists with different parameters
         {'EXIT', {{shutdown, {server_initiated_close, 406, Error}}, _From}} ->
             {error, forbidden, Error}
@@ -57,8 +59,7 @@ delete_topic0(Connection, VHost, Exchange) ->
         #'exchange.delete_ok'{} ->
             % remove all CoAP consumers bound to this exchange
             lists:foreach(
-                fun (#binding{destination=#resource{
-                                                    kind=queue,
+                fun (#binding{destination=#resource{kind=queue,
                                                     name= <<"coap/", _Tail/binary>>=QName}}) ->
                         delete_queue(QName, Connection);
                     (_Other) ->
@@ -97,7 +98,8 @@ publish(ChId, VHost, Exchange, Key, Content) ->
         {error, access_refused} -> {error, forbidden, "Access Refused"}
     end.
 
-publish0(Connection, _VHost, Exchange, Key, #coap_content{format=ContentFormat, payload=Payload}) ->
+publish0(Connection, _VHost, Exchange, Key,
+        #coap_content{etag=ETag, max_age=MaxAge, format=ContentFormat, payload=Payload}) ->
     {ok, PubChannel} = amqp_connection:open_channel(Connection),
     amqp_channel:call(PubChannel, #'confirm.select'{}),
 
@@ -106,6 +108,8 @@ publish0(Connection, _VHost, Exchange, Key, #coap_content{format=ContentFormat, 
                                     mandatory=true},
     Content = #amqp_msg{props = #'P_basic'{
                             content_type = ContentFormat,
+                            expiration = integer_to_binary(MaxAge*1000), % milliseconds
+                            message_id = ETag,
                             delivery_mode = 1},
                         payload = Payload},
     amqp_channel:call(PubChannel, BasicPublish, Content),
@@ -122,10 +126,11 @@ message_to_content(#'P_basic'{content_type=ContentType, expiration=Expires, mess
     #coap_content{
         % etag is the first 4 bytes of sha-hash
         etag = if MsgId == undefined -> undefined;
+                  byte_size(MsgId) =< 8 -> MsgId;
                   true -> binary:part(crypto:hash(sha, MsgId), {0,4})
                end,
         % convert AMQP expires[milliseconds] to CoAP max-age[seconds]
-        max_age = if Expires == undefined -> undefined;
+        max_age = if Expires == undefined -> ?DEFAULT_MAX_AGE;
                      true -> trunc(binary_to_integer(Expires)/1000)
                   end,
         format = ContentType,

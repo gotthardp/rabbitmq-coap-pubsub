@@ -11,13 +11,13 @@
 -behaviour(coap_resource).
 
 -export([coap_discover/2, coap_get/3, coap_post/4, coap_put/4, coap_delete/3,
-    coap_observe/3, coap_unobserve/1, handle_info/2]).
+    coap_observe/3, coap_unobserve/1, handle_info/2, coap_ack/2]).
 
 -include_lib("amqp_client/include/amqp_client.hrl").
 -include_lib("gen_coap/include/coap.hrl").
 -include_lib("rabbitmq_lvc/include/rabbit_lvc_plugin.hrl").
 
--record(obstate, {connection, channel}).
+-record(obstate, {connection, channel, last_update}).
 
 % DISCOVER
 coap_discover(Prefix, _Args) ->
@@ -40,7 +40,7 @@ get_resources(User, Prefix) ->
 
 % GET
 coap_get(_ChId, _Prefix, [VHost, Exchange]) ->
-    handle_get(VHost, Exchange, <<>>);
+    handle_get(VHost, Exchange, undefined);
 coap_get(_ChId, _Prefix, [VHost, Exchange, Key]) ->
     handle_get(VHost, Exchange, Key);
 coap_get(_ChId, _Prefix, _Else) ->
@@ -79,7 +79,7 @@ coap_post(_ChId, _Prefix, _Else, _Content) ->
 
 % PUBLISH
 coap_put(ChId, _Prefix, [VHost, Exchange], Content) ->
-    rabbit_coap_amqp_client:publish(ChId, VHost, Exchange, "", Content);
+    rabbit_coap_amqp_client:publish(ChId, VHost, Exchange, undefined, Content);
 coap_put(ChId, _Prefix, [VHost, Exchange, Key], Content) ->
     rabbit_coap_amqp_client:publish(ChId, VHost, Exchange, Key, Content);
 coap_put(_ChId, _Prefix, _Else, _Content) ->
@@ -93,7 +93,7 @@ coap_delete(_ChId, _Prefix, _Else) ->
 
 % SUBSCRIBE
 coap_observe(ChId, _Prefix, [VHost, Exchange]) ->
-    handle_observe(ChId, VHost, Exchange, <<>>);
+    handle_observe(ChId, VHost, Exchange, undefined);
 coap_observe(ChId, _Prefix, [VHost, Exchange, Key]) ->
     handle_observe(ChId, VHost, Exchange, Key).
 
@@ -121,31 +121,33 @@ coap_unobserve(#obstate{connection=Connection, channel=Channel}) ->
     amqp_connection:close(Connection),
     ok.
 
+% amqp consumer started
 handle_info(#'basic.consume_ok'{}, State) ->
-    {ok, State};
-
+    {noreply, State#obstate{last_update=undefined}};
+% amqp consumer stopped, e.g. because its queue was purged
 handle_info(#'basic.cancel'{}, State) ->
     rabbit_log:info("cancelled observer"),
-    {stop, normal, State};
-
-handle_info({#'basic.deliver'{delivery_tag=DTag}, #amqp_msg{props = Props, payload = Payload}}, State) ->
-    {notify, rabbit_coap_amqp_client:message_to_content(Props, Payload), State};
-
-handle_info({coap_ack, _ChId, _Pid, {DTag}}, State=#obstate{channel=Channel}) ->
-    amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = DTag}),
-    {noreply, State};
-
-handle_info({coap_error, _ChId, _Pid, {_DTag}, _Error}, State) ->
-    {stop, normal, State};
-
+    {stop, State};
+% new message received
+handle_info({#'basic.deliver'{}, Message=#amqp_msg{}}, State=#obstate{last_update=undefined}) ->
+    % ignore the first update, which is sent just after binding the exchange
+    {noreply, State#obstate{last_update=Message}};
+handle_info({#'basic.deliver'{delivery_tag=DTag}, Message=#amqp_msg{props=Props, payload=Payload}}, State) ->
+    {notify, DTag, rabbit_coap_amqp_client:message_to_content(Props, Payload),
+        State#obstate{last_update=Message}};
+% something else
 handle_info(Msg, State) ->
     rabbit_log:warning("unexpected message ~p", [Msg]),
     {noreply, State}.
 
+coap_ack(DTag, State=#obstate{channel=Channel}) ->
+    amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = DTag}),
+    {ok, State}.
+
 
 % utility functions
 
-construct_link(Prefix, VHost, Exch, <<>>, Content) ->
+construct_link(Prefix, VHost, Exch, undefined, Content) ->
     {absolute, Prefix++[VHost, Exch], construct_attributes(Content)};
 construct_link(Prefix, VHost, Exch, RK, Content) ->
     {absolute, Prefix++[VHost, Exch, RK], construct_attributes(Content)}.
