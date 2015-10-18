@@ -11,13 +11,13 @@
 -behaviour(coap_resource).
 
 -export([coap_discover/2, coap_get/3, coap_post/4, coap_put/4, coap_delete/3,
-    coap_observe/3, coap_unobserve/1, handle_info/2, coap_ack/2]).
+    coap_observe/4, coap_unobserve/1, handle_info/2, coap_ack/2]).
 
 -include_lib("amqp_client/include/amqp_client.hrl").
 -include_lib("gen_coap/include/coap.hrl").
 -include_lib("rabbitmq_lvc/include/rabbit_lvc_plugin.hrl").
 
--record(obstate, {connection, channel, last_update}).
+-record(obstate, {connection, channel, ack, last_update}).
 
 % DISCOVER
 coap_discover(Prefix, _Args) ->
@@ -92,20 +92,21 @@ coap_delete(_ChId, _Prefix, _Else) ->
     {error, not_found}.
 
 % SUBSCRIBE
-coap_observe(ChId, _Prefix, [VHost, Exchange]) ->
-    handle_observe(ChId, VHost, Exchange, <<"">>);
-coap_observe(ChId, _Prefix, [VHost, Exchange, Key]) ->
-    handle_observe(ChId, VHost, Exchange, Key).
+coap_observe(ChId, _Prefix, [VHost, Exchange], Ack) ->
+    handle_observe(ChId, VHost, Exchange, <<"">>, Ack);
+coap_observe(ChId, _Prefix, [VHost, Exchange, Key], Ack) ->
+    handle_observe(ChId, VHost, Exchange, Key, Ack).
 
-handle_observe(ChId, VHost, Exchange, Key) ->
+handle_observe(ChId, VHost, Exchange, Key, Ack) ->
     case rabbit_coap_amqp_client:init_connection(ChId, VHost) of
         {ok, Connection} ->
             QName = observer_to_queue(ChId),
             case rabbit_coap_amqp_client:create_and_bind_queue(Connection, QName, Exchange, Key) of
                 ok ->
                     {ok, Channel} = amqp_connection:open_channel(Connection),
-                    #'basic.consume_ok'{} = amqp_channel:call(Channel, #'basic.consume'{queue=QName}),
-                    {ok, #obstate{connection=Connection, channel=Channel}};
+                    #'basic.consume_ok'{} =
+                        amqp_channel:call(Channel, #'basic.consume'{queue=QName, no_ack=not Ack}),
+                    {ok, #obstate{connection=Connection, channel=Channel, ack=Ack}};
                 Error ->
                     Error
             end;
@@ -130,9 +131,12 @@ handle_info(#'basic.cancel'{}, State) ->
     {stop, State};
 % new message received
 handle_info({#'basic.deliver'{delivery_tag=DTag}, Message=#amqp_msg{}},
-        State=#obstate{channel=Channel, last_update=undefined}) ->
+        State=#obstate{channel=Channel, ack=true, last_update=undefined}) ->
     % ignore the first update, which is sent just after binding the exchange
     amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = DTag}),
+    {noreply, State#obstate{last_update=Message}};
+handle_info({#'basic.deliver'{}, Message=#amqp_msg{}},
+        State=#obstate{ack=false, last_update=undefined}) ->
     {noreply, State#obstate{last_update=Message}};
 handle_info({#'basic.deliver'{delivery_tag=DTag}, Message=#amqp_msg{props=Props, payload=Payload}}, State) ->
     {notify, DTag, rabbit_coap_amqp_client:message_to_content(Props, Payload),

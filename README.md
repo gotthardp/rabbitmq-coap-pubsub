@@ -72,10 +72,6 @@ other CoAP client and perform all standard operations:
    $ ./coap-client -m delete coap://127.0.0.1/ps/%2f/topic1
    </pre>
 
-All CoAP clients are authenticated as a user "anonymous". By setting RabbitMQ
-permissions for this user you can restrict access rights of the CoAP clients.
-The authenticated DTLS access is not supported (for now).
-
 ### RabbitMQ Behaviour
 
 Each CoAP topic is implemented as an RabbitMQ exchange. Subscription to a topic is
@@ -84,6 +80,10 @@ implemented using a temporary RabbitMQ queue bound to that exchange.
 Names of the temporary queues are composed from a prefix `coap/` and IP:port of the
 subscriber. For example, a subscription from 127.0.0.1:40212 will be served by the
 queue `coap/127.0.0.1:40212`. Deleting this queue will forcibly terminate the observer.
+
+All CoAP clients are authenticated as a user "anonymous". By setting RabbitMQ
+permissions for this user you can restrict access rights of the CoAP clients.
+The authenticated DTLS access is not supported (for now).
 
 The message attributes gets converted as shown in the following table:
 
