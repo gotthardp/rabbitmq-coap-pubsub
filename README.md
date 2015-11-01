@@ -24,7 +24,6 @@ It supports the following features:
 
 It does not (yet) support:
  - Secure transport, based on DTLS
- - Uri-Query option
 
 
 ## Interactions
