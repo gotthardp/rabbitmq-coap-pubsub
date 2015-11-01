@@ -39,8 +39,12 @@ other CoAP client and perform all standard operations:
    can be accessed by the user "anonymous",
    or an empty list if the user "anonymous" does not exist.
    <pre>
-   $ ./coap-client coap://127.0.0.1/.well-known/core?rt=core.ps
+   $ ./coap-client coap://127.0.0.1/.well-known/core
    &lt;/ps>;rt="core.ps",&lt;/ps/%2F/topic1>;ct=0;sz=15600
+   </pre>
+   <pre>
+   $ ./coap-client coap://127.0.0.1/.well-known/core?rt=core.ps
+   &lt;/ps>;rt="core.ps"
    </pre>
  - Create a topic by `POST /ps/vhost "<topic1>"`.
    The broker will create an x-lvc exchange named "topic1" in a given vhost.
