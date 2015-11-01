@@ -10,7 +10,7 @@
 -module(rabbit_coap_handler).
 -behaviour(coap_resource).
 
--export([coap_discover/2, coap_get/3, coap_post/4, coap_put/4, coap_delete/3,
+-export([coap_discover/2, coap_get/4, coap_post/4, coap_put/4, coap_delete/3,
     coap_observe/4, coap_unobserve/1, handle_info/2, coap_ack/2]).
 
 -include_lib("amqp_client/include/amqp_client.hrl").
@@ -39,11 +39,11 @@ get_resources(User, Prefix) ->
                 [], [{{'$1', '$2', '$3', '$4'}}]}])).
 
 % GET
-coap_get(_ChId, _Prefix, [VHost, Exchange]) ->
+coap_get(_ChId, _Prefix, [VHost, Exchange], _Query) ->
     handle_get(VHost, Exchange, <<"">>);
-coap_get(_ChId, _Prefix, [VHost, Exchange, Key]) ->
+coap_get(_ChId, _Prefix, [VHost, Exchange, Key], _Query) ->
     handle_get(VHost, Exchange, Key);
-coap_get(_ChId, _Prefix, _Else) ->
+coap_get(_ChId, _Prefix, _Else, _Query) ->
     {error, not_found}.
 
 handle_get(VHost, Exchange, Key) ->
