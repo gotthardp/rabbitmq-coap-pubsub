@@ -178,10 +178,10 @@ observer_to_queue({PeerIP, PeerPort}) ->
     Str = lists:concat(["coap/", inet:ntoa(PeerIP), ":", PeerPort]),
     list_to_binary(Str).
 
-queue_to_observer(Binary) ->
-    [<<"coap">>, IPStr, PortStr] = binary:split(Binary, [<<"/">>, <<":">>], [global]),
-    {ok, PeerIP} = inet:parse_address(binary_to_list(IPStr)),
-    PeerPort = list_to_integer(binary_to_list(PortStr)),
-    {PeerIP, PeerPort}.
+%queue_to_observer(Binary) ->
+%    [<<"coap">>, IPStr, PortStr] = binary:split(Binary, [<<"/">>, <<":">>], [global]),
+%    {ok, PeerIP} = inet:parse_address(binary_to_list(IPStr)),
+%    PeerPort = list_to_integer(binary_to_list(PortStr)),
+%    {PeerIP, PeerPort}.
 
 % end of file
