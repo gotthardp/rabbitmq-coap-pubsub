@@ -9,7 +9,7 @@
 
 {application, rabbitmq_coap_pubsub,
     [{description, "CoAP Publish-Subscribe interface to RabbitMQ"},
-    {vsn, "0.0.1"},
+    {vsn, "0.1.0"},
     {modules, []},
     {registered, []},
     {env, [
