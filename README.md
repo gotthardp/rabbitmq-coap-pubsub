@@ -141,24 +141,16 @@ For example:
 
 ### Installation from source
 
-First, download and build
-[RabbitMQ gen_coap Integration](https://github.com/gotthardp/rabbitmq-gen-coap).
-The `rabbitmq-gen-coap` provides a generic Erlang CoAP server and client, which may be
-used by multiple plug-ins.
-
-Then, build and activate the RabbitMQ plug-in `rabbitmq-coap-pubsub`. See the
+Build and activate the RabbitMQ plug-in `rabbitmq-coap-pubsub`. See the
 [Plugin Development Guide](http://www.rabbitmq.com/plugin-development.html)
 for more details.
 
-    $ git clone https://github.com/rabbitmq/rabbitmq-public-umbrella.git
-    $ cd rabbitmq-public-umbrella
-    $ make co
-    $ ./foreachrepo git checkout <tag>
     $ git clone https://github.com/gotthardp/rabbitmq-coap-pubsub.git
     $ cd rabbitmq-coap-pubsub
     $ make
 
 ### History
+* 0.2.0 (under development) Compatible with RabbitMQ 3.6.x and later.
 * 0.1.0 (Nov 14, 2015) First release. Compatible with RabbitMQ 3.5.x only.
 
 
