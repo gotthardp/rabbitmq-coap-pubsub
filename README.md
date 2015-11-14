@@ -141,6 +141,8 @@ For example:
 
 ### Installation from source
 
+[![Build Status](https://travis-ci.org/gotthardp/rabbitmq-coap-pubsub.svg?branch=master)](https://travis-ci.org/gotthardp/rabbitmq-coap-pubsub)
+
 Build and activate the RabbitMQ plug-in `rabbitmq-coap-pubsub`. See the
 [Plugin Development Guide](http://www.rabbitmq.com/plugin-development.html)
 for more details.
