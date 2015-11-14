@@ -20,7 +20,7 @@ pkg_gen_coap_description = Generic Erlang CoAP Client/Server
 pkg_gen_coap_homepage = https://github.com/gotthardp/gen_coap
 pkg_gen_coap_fetch = git
 pkg_gen_coap_repo = https://github.com/gotthardp/gen_coap.git
-pkg_gen_coap_commit = 1fd56e2499e98e0b7a9cef4ed65990fbf139dc47
+pkg_gen_coap_commit = v0.1.0
 
 # FIXME: Use erlang.mk patched for RabbitMQ, while waiting for PRs to be
 # reviewed and merged.
