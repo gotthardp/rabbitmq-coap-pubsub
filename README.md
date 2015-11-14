@@ -158,6 +158,10 @@ for more details.
     $ cd rabbitmq-coap-pubsub
     $ make
 
+### History
+* 0.1.0 (Nov 14, 2015) First release. Compatible with RabbitMQ 3.5.x only.
+
+
 ## Copyright and Licensing
 
 Copyright (c) 2015 Petr Gotthard <petr.gotthard@centrum.cz>. All Rights Reserved.
