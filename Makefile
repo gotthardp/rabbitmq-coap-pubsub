@@ -6,14 +6,6 @@ TEST_DEPS = rabbitmq_test
 
 DEP_PLUGINS = rabbit_common/mk/rabbitmq-plugin.mk
 
-PACKAGES += rabbitmq_lvc
-pkg_rabbitmq_lvc_name = rabbitmq_lvc
-pkg_rabbitmq_lvc_description = Last value caching exchange
-pkg_rabbitmq_lvc_homepage = https://github.com/rabbitmq/rabbitmq-lvc-plugin
-pkg_rabbitmq_lvc_fetch = git
-pkg_rabbitmq_lvc_repo = https://github.com/rabbitmq/rabbitmq-lvc-plugin.git
-pkg_rabbitmq_lvc_commit = master
-
 PACKAGES += gen_coap
 pkg_gen_coap_name = gen_coap
 pkg_gen_coap_description = Generic Erlang CoAP Client/Server
