@@ -2,7 +2,7 @@ PROJECT = rabbitmq_coap_pubsub
 
 DEPS = amqp_client rabbitmq_lvc gen_coap
 
-TEST_DEPS = rabbitmq_test
+TEST_DEPS = rabbit
 
 DEP_PLUGINS = rabbit_common/mk/rabbitmq-plugin.mk
 
