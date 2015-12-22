@@ -152,7 +152,7 @@ for more details.
     $ make
 
 ### History
-* 0.2.0 (under development) Compatible with RabbitMQ 3.6.x and later.
+* 0.2.0 (Dec 22, 2015) Compatible with RabbitMQ 3.6.x and later.
 * 0.1.0 (Nov 14, 2015) First release. Compatible with RabbitMQ 3.5.x only.
 
 
