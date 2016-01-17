@@ -149,7 +149,7 @@ for more details.
 
     $ git clone https://github.com/gotthardp/rabbitmq-coap-pubsub.git
     $ cd rabbitmq-coap-pubsub
-    $ make
+    $ make dist
 
 ### History
 * 0.2.0 (Dec 22, 2015) Compatible with RabbitMQ 3.6.x and later.
