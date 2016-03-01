@@ -15,8 +15,17 @@
                     {mfa, {?MODULE, init_plugin, []}}
                    ]}).
 
+ensure_started(App) ->
+    case application:start(App) of
+        ok ->
+            ok;
+        {error, {already_started, App}} ->
+            ok
+    end.
+
 init_plugin() ->
     {ok, Prefix} = application:get_env(?MODULE, prefix),
+    ensure_started(gen_coap),
     coap_server_registry:add_handler(Prefix, rabbit_coap_handler, []),
     ok.
 

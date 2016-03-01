@@ -20,6 +20,7 @@ pkg_gen_coap_commit = v0.1.0
 ERLANG_MK_REPO = https://github.com/rabbitmq/erlang.mk.git
 ERLANG_MK_COMMIT = rabbitmq-tmp
 
+current_rmq_ref = stable
 include rabbitmq-components.mk
 include erlang.mk
 
