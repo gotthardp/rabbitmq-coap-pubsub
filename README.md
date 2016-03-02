@@ -111,6 +111,9 @@ This plug-in requires the
 Please make sure that both `rabbitmq_lvc` and `rabbitmq_coap_pubsub` are installed.
 
 ### RabbitMQ Configuration
+To enable access via the plain CoAP (without authentication) you need to create the
+user "anonymous" with desired access rights.
+
 To change the default settings you may add the `rabbitmq_coap_pubsub` section
 to your [RabbitMQ Configuration](https://www.rabbitmq.com/configure.html).
 
