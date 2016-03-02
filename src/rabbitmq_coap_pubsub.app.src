@@ -15,6 +15,6 @@
     {env, [
         {prefix, [<<"ps">>]}
     ]},
-    {applications, [kernel, stdlib, rabbit, amqp_client, gen_coap]}]}.
+    {applications, [kernel, stdlib, rabbit, amqp_client, rabbitmq_lvc, gen_coap]}]}.
 
 % end of file
