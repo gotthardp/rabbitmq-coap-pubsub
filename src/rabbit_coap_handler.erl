@@ -64,6 +64,9 @@ handle_get(User, VHost, Exchange, Key) ->
                     {Props, Payload} = rabbit_basic:from_content(Content),
                     rabbit_coap_amqp_client:message_to_content(Props, Payload)
             end;
+        {'EXIT', {amqp_error, access_refused, Error, _}} ->
+            rabbit_log:warning(Error),
+            {error, forbidden, "Access Refused"};
         {'EXIT', _} ->
             {error, forbidden}
     end.
