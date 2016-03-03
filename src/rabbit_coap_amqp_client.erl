@@ -113,8 +113,7 @@ publish0(Connection, _VHost, Exchange, Key,
     amqp_channel:call(PubChannel, #'confirm.select'{}),
 
     BasicPublish = #'basic.publish'{exchange=Exchange,
-                                    routing_key=Key,
-                                    mandatory=true},
+                                    routing_key=Key},
     Content = #amqp_msg{props = #'P_basic'{
                             content_type = ContentFormat,
                             expiration = integer_to_binary(MaxAge*1000), % milliseconds
