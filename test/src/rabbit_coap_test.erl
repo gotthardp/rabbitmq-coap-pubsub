@@ -18,7 +18,7 @@ basic_test_() ->
     [?_assertMatch({ok,content,#coap_content{format= <<"application/link-format">>,
                                              payload= <<"</ps>;rt=\"core.ps\"">>}},
         coap_client:request(get, "coap://127.0.0.1/.well-known/core")),
-    ?_assertEqual({error, not_found,#coap_content{}},
+    ?_assertEqual({error, not_found,#coap_content{payload= <<"NOT_FOUND">>}},
         coap_client:request(put, "coap://127.0.0.1/ps/%2f/unknown", #coap_content{payload= <<"1">>})),
     ?_assertEqual({ok,created,#coap_content{}},
         coap_client:request(post, "coap://127.0.0.1/ps/%2f", #coap_content{payload= <<"<topic1>">>})),
