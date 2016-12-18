@@ -130,13 +130,44 @@ to your [RabbitMQ Configuration](https://www.rabbitmq.com/configure.html).
         Default: <pre>[<<"ps">>]</pre>
       </td>
     </tr>
+    <tr>
+      <td><pre>udp_listen</pre></td>
+      <td>
+        Port for incoming coap:// requests.
+        <br/>
+        Default: <pre>5683</pre>
+      </td>
+    </tr>
+    <tr>
+      <td><pre>dtls_listen</pre></td>
+      <td>
+        Port for incoming coaps:// requests.
+        <br/>
+        Disabled by default.
+      </td>
+    </tr>
+    <tr>
+      <td><pre>dtls_options</pre></td>
+      <td>
+        Configuration of the DTLS server. Shall include at least
+        certfile and keyfile fields.
+        See <a href="http://erlang.org/doc/man/ssl.html">ssl_option()</a>
+        for more details.
+      </td>
+    </tr>
   </tbody>
 </table>
 
 For example:
 ```erlang
 {rabbitmq_coap_pubsub, [
-    {prefix, [<<"ps">>]}
+    {prefix, [<<"ps">>]},
+    {udp_listen, 5683},
+    {dtls_listen, 5684},
+    {dtls_options, [
+        {certfile, "/etc/rabbitmq/cert.pem"},
+        {keyfile, "/etc/rabbitmq/key.pem"}
+    ]}
 ]}
 ```
 
