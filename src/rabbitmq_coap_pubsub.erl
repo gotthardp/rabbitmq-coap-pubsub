@@ -25,7 +25,7 @@ init_plugin() ->
     end,
     case application:get_env(?MODULE, dtls_listen) of
         {ok, DtlsPort} when is_integer(DtlsPort) ->
-            {ok, DtlsOpts} = application:get_env(?MODULE, dtls_options, []),
+            DtlsOpts = application:get_env(?MODULE, dtls_options, []),
             {ok, _} = coap_server:start_dtls(coap_dtls_socket, DtlsPort, DtlsOpts);
         undefined ->
             ok
