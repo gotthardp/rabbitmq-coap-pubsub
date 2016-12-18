@@ -15,17 +15,22 @@
                     {mfa, {?MODULE, init_plugin, []}}
                    ]}).
 
-ensure_started(App) ->
-    case application:start(App) of
-        ok ->
-            ok;
-        {error, {already_started, App}} ->
-            ok
-    end.
-
 init_plugin() ->
+    {ok, _} = application:ensure_all_started(gen_coap),
+    case application:get_env(?MODULE, udp_listen) of
+        {ok, UdpPort} when is_integer(UdpPort) ->
+            {ok, _} = coap_server:start_udp(coap_udp_socket, UdpPort);
+        undefined ->
+            ok
+    end,
+    case application:get_env(?MODULE, dtls_listen) of
+        {ok, DtlsPort} when is_integer(DtlsPort) ->
+            {ok, DtlsOpts} = application:get_env(?MODULE, dtls_options, []),
+            {ok, _} = coap_server:start_dtls(coap_dtls_socket, DtlsPort, DtlsOpts);
+        undefined ->
+            ok
+    end,
     {ok, Prefix} = application:get_env(?MODULE, prefix),
-    ensure_started(gen_coap),
     coap_server_registry:add_handler(Prefix, rabbit_coap_handler, []),
     ok.
 

@@ -9,12 +9,13 @@
 
 {application, rabbitmq_coap_pubsub,
     [{description, "CoAP Publish-Subscribe interface to RabbitMQ"},
-    {vsn, "0.2.0"},
+    {vsn, "0.3.0"},
     {modules, []},
     {registered, []},
     {env, [
-        {prefix, [<<"ps">>]}
+        {prefix, [<<"ps">>]},
+        {udp_listen, 5683}
     ]},
-    {applications, [kernel, stdlib, rabbit, amqp_client, rabbitmq_lvc, gen_coap]}]}.
+    {applications, [kernel, stdlib, ssl, rabbit, amqp_client, rabbitmq_lvc, gen_coap]}]}.
 
 % end of file

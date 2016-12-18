@@ -18,12 +18,10 @@ Not for operational use.
 The implementation is based on the
 [Generic Erlang CoAP Client/Server](https://github.com/gotthardp/gen_coap).
 It supports the following features:
- - CoAP core protocol [RFC 7252](https://tools.ietf.org/rfc/rfc7252.txt)
+ - CoAP core protocol [RFC 7252](https://tools.ietf.org/rfc/rfc7252.txt),
+   including (since Erlang/OTP 19.2) the DTLS-Secured CoAP
  - CoAP Observe option [RFC 7641](https://tools.ietf.org/rfc/rfc7641.txt)
  - Block-wise transfers in CoAP [draft-ietf-core-block-18](https://tools.ietf.org/id/draft-ietf-core-block-18.txt)
-
-It does not (yet) support:
- - Secure transport, based on DTLS
 
 
 ## Interactions
@@ -150,7 +148,7 @@ Build and activate the RabbitMQ plug-in `rabbitmq-coap-pubsub`. See the
 [Plugin Development Guide](http://www.rabbitmq.com/plugin-development.html)
 for more details.
 
-    $ git clone https://github.com/gotthardp/rabbitmq-coap-pubsub.git
+    $ git clone -b stable https://github.com/gotthardp/rabbitmq-coap-pubsub.git
     $ cd rabbitmq-coap-pubsub
     $ make dist
 
